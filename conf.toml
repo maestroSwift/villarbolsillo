@@ -1,0 +1,71 @@
+# villarbolsillo.toml
+
+[menu.principal]
+    titulo = "Menú principal\n--------------"
+    C = "[C]rear participante."
+    L = "[L]ista de participantes."
+    R = "Busca[R] participante."
+    O = "[O]pciones del participante."
+    S = "[S]alir."
+
+[menu.participante]
+    titulo = "Operaciones del participante\n----------------------------"
+    D = "Presentar [D]atos del participante."
+    M = "[M]odificar participante."
+    B = "[B]orrar participante y volver."
+    R = "Busca[R] otro participante."
+    P = "Operaciones con el [P]ersonaje."
+    V = "[V]olver."
+
+[menu.cuenta]
+    titulo = "Operaciones de la cuenta\n------------------------"
+    N = "[N]ueva cuenta."
+    B = "[B]orrar cuenta."
+    O = "[O]peraciones con movimientos."
+    V = "[V]olver."
+
+[menu.modificarParticipante]
+    titulo = "Modificar participante\n----------------------"
+    R = "Busca[R] participante."
+    N = "[N]ombre."
+    P = "[P]rimer apellido."
+    S = "[S]egundo apellido."
+    T = "[T]ipo (Comerciante o Estudiante)."
+    V = "[V]olver."
+
+[menu.operacionesPersonaje]
+    titulo = "Operaciones con el personaje\n----------------------------"
+    A = "[A]signar personaje."
+    B = "[B]orrar personaje."
+    M = "[M]odificar personaje."
+    O = "[O]peraciones con la cuenta del personaje."
+    P = "Buscar otro [P]articipante."
+    L = "[L]ista de participantes con el mismo personaje."
+    V = "[V]olver."
+
+[menu.movimientos]
+    titulo = "Operaciones con movimientos\n---------------------------"
+    N = "[N]uevo movimiento."
+    B = "[B]orrar movimiento."
+    M = "[M]odificar movimiento (devolución de artículo)."
+    L = "[L]ista de movimientos."
+    T = "Borrar [T]odos los movimientos."
+    V = "[V]olver."
+
+[menu.completo]
+    titulo = "Menú de opciones\n----------------"
+    "0" = "Salir."
+    "1" = "Crear participante."
+    "2" = "Lista de participantes."
+    "3" = "Presentar datos del participante."
+    "4" = "Modificar datos del participante."
+    "5" = "Borrar participante."
+    "6" = "Asignar personaje."
+    "7" = "Borrar personaje."
+    "8" = "Nueva cuenta."
+    "9" = "Borrar cuenta."
+    "A" = "Nuevo movimiento bancario."
+    "B" = "Borrar movimiento bancario."
+    "C" = "Modificar movimiento (devolución de artículo)."
+    "D" = "Lista de movimientos bancarios."
+    "E" = "Borrar todos los movimientos bancarios de una cuenta."
