@@ -11,10 +11,10 @@
 # ----------------------
 #
 
-
 import os, time
 import tomllib
 import getch
+import collections
 import numpy as np
 import pandas as pd
 from pyairtable import Table
@@ -27,989 +27,1426 @@ from prettytable import PLAIN_COLUMNS, PrettyTable
 #
 
 
-# Pila
-class Pila:
-    """ Representa una pila con operaciones de apilar, desapilar y
-        verificar si está vacía. """
-
-    def __init__(self):
-        """ Crea una pila vacía. """
-        # La pila vacía se representa con una lista vacía
-        self.items=[]
-
-    def apilar(self, x):
-        """ Agrega el elemento x a la pila. """
-        # Apilar es agregar al final de la lista.
-        self.items.append(x)
-
-    def desapilar(self):
-        """ Devuelve el elemento tope y lo elimina de la pila.
-            Si la pila está vacía levanta una excepción. """
-        try:
-            return self.items.pop()
-        except IndexError:
-            raise ValueError("La pila está vacía")
-
-    def es_vacia(self):
-        """ Devuelve True si la lista está vacía, False si no. """
-        return self.items == []
-
-
-# Validación de campos
-class Validacion:
-
-    def __init__(self):
-        pass
-
-    def validarNombre(self, dato):
-        if len(dato) < 2 or len(dato) > 50:
-            raise ValueError(f'El nombre debe tener como mínimo 2 caracteres y un máximo de 50 caracteres, tamaño actual: {len(dato)}')
-        return True
-
-    def validarApellido1(self, dato):
-        if len(dato) < 2 or len(dato) > 50:
-            raise ValueError(f'El primer apellido debe tener como mínimo 2 caractares y un máximo de 50 caracteres, tamaño actual: {len(dato)}')
-        return True
-
-
-# Menú de opciones
-class Menu:
-    ''' Gestiona los menús de opciones'''
-
-    def __init__(self):
-        self.titulo = "" # Título del menú
-        self.listaOpciones = dict() # Diccionario con opciones
-    
 #
-# Globales
+# Modelo
 #
-validador = Validacion()
-base = dict()
-
-
-#
-# Funciones
-# ---------
-#
-
-
-def cargarConfiguracion():
-    ''' Devuelve la configuración alojada en archivo toml'''
-
-    with open("conf.toml", mode="rb") as fichero:
-        conf = tomllib.load(fichero)
-
-    return conf
-
-
-def cargarMenus():
-
-    menus = cargarConfiguracion().get("menu")
-    catalogo = dict()
-
-    llaves = menus.keys()
-    catalogo = {}.fromkeys(llaves, Menu())
-
-    for clave in catalogo.keys():
-        claves = menus.get(clave).keys()
-        lineas = menus.get(clave).values()
-        menu = {}.fromkeys(claves, "")
-        for llave, linea in zip(claves, lineas):
-            menu[llave] = linea
-        catalogo[clave] = menu
-
-    return catalogo
-
-
-menus = cargarMenus()
-
-
-def clear():
-    '''Limpiar sesión del terminal'''
-    os.system('cls' if os.name=='nt' else 'clear')
-    return("   ")
-    
-
-def pedirClave():
-    '''Pedir clave Airtable-API'''
-    
-    print("\nIntroducir contraseña: ", end="")
-
-    pw = ""
-
-    while True:
-        try:    
-            x = getch.getch()
-            if x == "\r" or x == "\n":
-                break
-            print("·", end="", flush=True)
-            pw += x
-        except OverflowError:
-            pass
-
-    print("")
-
-    return pw
- 
-
-def cargarBase():
-    '''Carga la base de datos de Airtable'''
-
-    # atk = pedirClave()
-    # atk = "keyttj6HcvrIi08wU"
-    baseDatos = os.environ.get("DATABASE")
-    atk = os.environ.get("PASSWORD")
-
-    tablas = {
-        "PERSONAS": Table(atk, baseDatos, "PERSONAS"),
-        "COMERCIOS": Table(atk, baseDatos, "COMERCIOS"),
-        "PERSONAJES": Table(atk, baseDatos, "PERSONAJES"),
-        "CUENTAS": Table(atk, baseDatos, "CUENTAS"),
-        "MOVIMIENTOS": Table(atk, baseDatos, "MOVIMIENTOS"),
-        "PRODUCTOS-SERVICIOS": Table(atk, baseDatos, "PRODUCTOS-SERVICIOS"),
-        "PROFESIONES": Table(atk, baseDatos, "PROFESIONES"),
-    }
-
-    try:
-        tablas["PERSONAS"].all(max_records=1, fields=["NOMBRE"])
-    except:
-        print("No se han podido cargas las tablas.")
-        os.exit()
-
-    return tablas
-
-
-def crearRegistroEnTabla(tabla, registro):
-    '''Crear un registro en una tabla de la base de datos'''
-
-    try:
-        reg = tabla.create(registro)
-        return reg
-    except:
-        print("No se ha podido crear el registro")
-        os._exit(1)
-
-
-def mostrarRegistro(reg, conf):
-    '''Muestra registro con los campos seleccionados'''
-
-    linea = PrettyTable()
-    linea.set_style(PLAIN_COLUMNS)
-    linea.field_names = conf["campos"]
-    for i, ajuste in enumerate(conf["ajuste"]):
-        col = conf["campos"][i]
-        linea.align[col] = ajuste       
-
-    fila = []
-    
-    for campo in conf["campos"]:
-
-        columna = reg["fields"].get(campo)
-        if not columna:
-            fila.append("--")
-        elif type(columna) == type(str()):
-            fila.append(columna)
-        elif type(columna == type(list())):
-            if type(columna[0]) == type(float()) or type(columna[0]) == type(int()):
-                fila.append("{0:.2f} €".format(columna[0]))
-            elif type(columna[0]) == type(str()):
-                fila.append(columna[0].upper())
-
-    serie = pd.Series(fila, index=conf["campos"])
-
-    linea.add_row(fila)
-
-    if conf["orientacion"] == "h":
-        print(linea)
-    elif conf["orientacion"] == "v":
-        print(serie)
-
-
-def mostrarParticipante(tabla, reg):
-    '''Muestra los datos de un participante'''
-
-    conf = dict(
-        campos = [
-            "NOMBRE COMPLETO",
-            "SALDO",
-            "PROFESIÓN",
-            "SALARIO",
-            "PROFESIÓN-CÓNYUGE",
-            "SALARIO-CÓNYUGE",
-            "NOMBRE-HIJOS",
-            "EDAD-HIJOS",
-            "CRÉDITO-UNIVERSITARIO",
-            "COPAGO-SEGURO-MÉDICO",
-            "DEUDA-TARJETA-CRÉDITO",
-            "PAGO-MÍNIMO-TARJETA-CRÉDITO",
-        ],
-        ajuste = ["l", "r", "l", "r", "l", "r", "l", "l", "r", "r", "r", "r"],
-        orientacion = "v"
-    )
-
-    registro = traerRegistroDeTabla(tabla, reg)
-
-    if registro:
-        mostrarRegistro(registro, conf)
-    else: print("No existe el registro.")
-
-
-def elegirPersonaje(tabla):
-    '''Muestra lista de personajes y pide una elección'
-
-    Argumentos:
-    - Tabla de PERSONAJES (Table)
-
-    Retorna:
-    - Registro de la tabla PERSONAJES elegido (dict)'''
-
-    lista = tabla.all(sort = ["REFERENCIA"], fields = ["PERSONAJE", "REFERENCIA", "PARTICIPANTE"])
-
-    refNoDisponibles = []
-    
-    for reg in lista:
-
-        hayParticipante = reg["fields"].get("PARTICIPANTE")
-
-        if hayParticipante:
-            # Participante ya asignado
-            print(f'{reg["fields"]["REFERENCIA"]} ASIGNADO - NO DISPONIBLE.')
-            refNoDisponibles.append(reg["fields"]["REFERENCIA"])
-
-        else:
-            # No está asignado todavía a un participante
-            print(reg["fields"]["PERSONAJE"] + ".")
-        
-    ref = 0
-    
-    while (ref < 1 or ref > len(lista)):
-        try:
-            ref = int(input("\nElige referencia del personaje: "))
-            if ref in refNoDisponibles:
-                print("Referencia ya asignada a otro participante.")
-                ref = 0
-        except ValueError:
-            # Si es una letra, volver a pedirlo
-            ref = 0
-
-    regElegido = buscarRegistroDeCampoEnTabla(lista, "REFERENCIA", ref)
-    
-    return regElegido
-
-
-def asignarRegEnlazado(tabla, regParticipante, campoParticipante, regPersonaje):
-    '''Asignar un registro enlazado en un campo de otra tabla'''
-
-    regEnlazado = regPersonaje
-    campo = {campoParticipante: regEnlazado}
-    
-    regTabla = regParticipante["id"]
-
-    try:
-        tabla.update(regTabla, campo)
-        print("Registro actualizado.")
-    except:
-        print("No ha sido posible actualizar el registro.")
-    
-
-def asignarPersonaje(tablas, reg):
-    ''' Asigna un personaje a un participante
-
-        Argumentos:
-        - Tablas de la base de datos (dict(Table))
-        - Referencia al registro del participante (list(str))
-
-        Retorna: --'''
-
-    # Comprobar que no tiene uno asignado ya
-    regParticipante = traerRegistroDeTabla(tablas["PERSONAS"], reg)
-    regEnlazado = None
-    cuenta = None
-
-    if regParticipante:
-
-        # Si tiene asignado personaje el campo PERSONAJE no está vacío
-        try:
-            regEnlazado = regParticipante["fields"].get("PERSONAJE")
-            regProfesion = traerRegistroDeTabla(tablas["PERSONAJES"], regEnlazado)
-            if regProfesion:
-                try:
-                    cuenta = regProfesion["fields"].get("CUENTA")
-                except: pass
-        except: pass
-
-        if not regEnlazado:    
-            # Elegir personaje
-            regPersonaje = elegirPersonaje(tablas["PERSONAJES"])
-            # Asignar personaje elegido
-            asignarRegEnlazado(tablas["PERSONAS"], regParticipante, "PERSONAJE", regPersonaje)
-        elif cuenta:
-            print("\nAntes de asignar un nuevo personaje es necesario eliminar la cuenta del personaje anterior.")
-        else:
-            print("\nEl participante tiene asignado el personaje {0}.".format(regParticipante["fields"]["PROFESIÓN"][0]))
-            respuesta = input("\n"+f'¿Seguro que quieres reasignar el personaje? (S/N): ').upper()
-            if respuesta == "S":
-                regPersonaje = elegirPersonaje(tablas["PERSONAJES"])
-                asignarRegEnlazado(tablas["PERSONAS"], regParticipante, "PERSONAJE", regPersonaje)
-            else: print("Registro no alterado.")
-                    
-    else: print("No existe el registro.")
-
-def operacionesPersonaje(tablas, reg):
-    '''Menú de opciones del personaje y pedir opción'''
-
-    mostrarParticipante(tablas["PERSONAS"], reg)
-
-    muestraOpciones(menus.get("operacionesPersonaje"))
-
-    opcion = input("\n").upper()
-
-    if opcion == "A" or opcion == "M":
-        clave = pedirClave()
-        if clave == atk or clave == "Joshua":
-            asignarPersonaje(tablas, reg)
-        operacionesPersonaje(tablas, reg)
-    elif opcion == "B":
-        clave = pedirClave()
-        if clave == atk or clave == "Joshua":
-            borrarPersonaje(tablas, reg)
-        operacionesPersonaje(tablas, reg)
-    elif opcion == "P":
-        reg = buscarParticipante(tablas["PERSONAS"])
-        operacionesPersonaje(tablas, reg)
-    elif opcion == "O":
-        clave = pedirClave()
-        if reg:
-            try:
-                if clave == reg[0] or clave == "Joshua":
-                    operacionesCuenta(tablas, reg)
-            except IndexError:
-                print("\nNo se ha elegido participante.")
-        opcionesParticipante(tablas, reg)
-    elif opcion == "L":
-        operacionesPersonaje(tablas, reg)
-    elif opcion == "V":
-        # Volver al menú anterior
-        opcionesParticipante(tablas, reg)
-    else:
-        print('Comando inválido.')
-        time.sleep(1)
-        operacionesPersonaje(tablas, reg)
-
-
-def muestraOpciones(opciones):
-    '''Muestra menús de opciones'''
-
-    for linea in opciones.keys():
-        if linea == "titulo":
-            print("\n" + opciones.get("titulo"))
-        else:
-            print(opciones.get(linea))
-
-
-def opcionesParticipante(tablas, reg):
-    '''Muestra menú del participante y pide opción'''
-
-    mostrarParticipante(tablas["PERSONAS"], reg)
-
-    muestraOpciones(menus.get("participante"))
-
-    opcion = input("\n").upper()
-
-    if opcion == "M":
-        clave = pedirClave()
-        if clave == atk or clave == "Joshua":
-            modificarParticipante(tablas["PERSONAS"], reg)
-        opcionesParticipante(tablas, reg)
-    elif opcion == "B":
-        clave = pedirClave()
-        if clave == atk or clave == "Joshua":
-            borrarParticipante(tablas["PERSONAS"], reg)
-            reg = []
-            opcion = "V"
-    elif opcion == "R":
-        reg = buscarParticipante(tablas["PERSONAS"])
-        opcionesParticipante(tablas, reg)
-    elif opcion == "D":
-        mostrarParticipante(tablas["PERSONAS"], reg)
-        opcionesParticipante(tablas, reg)
-    elif opcion == "P":
-        clave = pedirClave()
-        try:
-            if clave == reg[0] or clave == "Joshua":
-                operacionesPersonaje(tablas, reg)
-        except IndexError:
-            print("\nNo se ha elegido participante.")
-        opcionesParticipante(tablas, reg)
-    elif opcion == "V":
-        # Volver al menú principal
-        comienzo(reg)
-    else:
-        print('Comando inválido.')
-        time.sleep(1)
-        opcionesParticipante(tablas, reg)
-
-
-def operacionesCuenta(tablas, reg):
-    '''Muestra opciones de la cuenta y pide opción'''
-
-    if comprobarPersonaje(tablas["PERSONAJES"], reg):
-
-        mostrarParticipante(tablas["PERSONAS"], reg)
-
-        muestraOpciones(menus.get("cuenta"))
-
-        opcion = input("\n").upper()
-
-        if opcion == "N":
-            clave = pedirClave()
-            if clave == atk or clave == "Joshua":
-                nuevaCuenta(tablas, reg)
-            operacionesCuenta(tablas, reg)
-        elif opcion == "B":
-            clave = pedirClave()
-            if clave == atk or clave == "Joshua":
-                borrarCuenta(tablas, reg)
-            operacionesCuenta(tablas, reg)
-        elif opcion == "O":
-            clave = pedirClave()
-            if clave == reg[0] or clave == "Joshua":
-                opcionesMovimientos(tablas, reg)
-            operacionesCuenta(tablas, reg)
-        elif opcion == "V":
-            # Volver al menú anterior
-            opcionesParticipante(tablas, reg)
-        else:
-            print('Comando inválido.')
-            time.sleep(1)
-            operacionesCuenta(tablas, reg)
-
-    else:
-
-        print("\nEs necesario primero asignar un personaje.")
-        time.sleep(1)
-        opcionesParticipante(tablas, reg)
-        
-
-def opcionesMovimientos(tablas, reg):
-    '''Muestra opciones de los movimientos un pide opción'''
-
-    mostrarParticipante(tablas["PERSONAS"], reg)
-
-    muestraOpciones(menus.get("movimientos"))
-
-    opcion = input("\n").upper()
-
-    if opcion == "N":
-        clave = pedirClave()
-        if clave == reg[0] or clave == "Joshua":
-            nuevoMovimiento(tablas, reg)
-        opcionesMovimientos(tablas, reg)
-    elif opcion == "B":
-        clave = pedirClave()
-        if clave == reg[0] or clave == "Joshua":
-            borrarMovimiento(tablas, reg)
-        opcionesMovimientos(tablas, reg)
-    elif opcion == "M":
-        clave = pedirClave()
-        if clave == reg[0] or clave == "Joshua":
-            modificarMovimiento(tablas, reg)
-        opcionesMovimientos(tablas, reg)
-    elif opcion == "L":
-        listaMovimientos(tablas, reg)
-        opcionesMovimientos(tablas, reg)
-    elif opcion == "T":
-        clave = pedirClave()
-        if clave == atk or clave == "Joshua":
-            borrarTodosMovimientos(tablas, reg)
-        opcionesMovimientos(tablas, reg)
-    elif opcion == "V":
-        # Volver al menú anterior
-        operacionesCuenta(tablas, reg)
-    else:
-        print('Comando inválido.')
-        time.sleep(1)
-        operacionesCuenta(tablas, reg)
-
-
-def mostrarReglasComercio(reg):
-    ''' Muestra las reglas de un comercio'''
-
-    print("\nReglas del comercio:")
-    print(reg["fields"].get("REGLAS"))
-
-def pedirDatosMovimiento(tablas):
-    '''Pide el concepto y el medio de pago'''
-
-    concepto = []
-    medio = ""
-    lineas = ""
-
-    listaComercios = tablas["COMERCIOS"].all(sort=["NOMBRE"], fields=["NOMBRE", "PRODUCTOS-SERVICIOS"])
-
-    for regComercio in listaComercios:
-        try:
-            regComercio["fields"]["PRODUCTOS-SERVICIOS"]
-            nombre = regComercio["fields"]["NOMBRE"]
-            lineas += f'{listaComercios.index(regComercio)+1}. {nombre}.\n'
-        except KeyError:
-            # Ayuntamiento
-            pass
-
-    print(lineas)
-
-    ref = 0
-
-    # Pedir comercio y validar respuesta
-    while (ref < 1 or ref > len(listaComercios)):
-        try:
-            ref = int(input("Elige referencia del comercio: "))
-            if (ref < 1 or ref > len(listaComercios)):
-                ref = 0
+class modelo:
+
+    # Atributos
+
+    # Menú de opciones
+    class Menu(object):
+        'Gestiona los menús de opciones'
+        def __init__(self):
+            self.titulo = "" # Título del menú
+            self.listaOpciones = dict() # Diccionario con opciones
+
+    # Personaje
+    class Persona(object):
+        "Gestiona el registro completo de un participante."
+
+        # Atributos
+
+        # Constructor
+        def __init__(self, tablas, reg={
+            {
+                "id": "",
+                "fields": {
+                    "NOMBRE": "",
+                    "APELLIDO1": "",
+                    "APELLIDO2": "",
+                    "TIPO": "",
+                    "PERSONAJE": [],
+                    # Campos calculados
+                    "NOMBRE COMPLETO": "",
+                    "SALDO": 0.0,
+                    "PROFESIÓN": "",
+                    "SALARIO": 0.0,
+                    "PROFESIÓN-CÓNYUGE": "",
+                    "SALARIO-CÓNYUGE": 0.0,
+                    "NOMBRE-HIJOS": "",
+                    "EDAD-HIJOS": "",
+                    "CRÉDITO-UNIVERSITARIO": 0.0,
+                    "COPAGO-SEGURO-MÉDICO": 0.0,
+                    "DEUDA-TARJETA-CRÉDITO": 0.0,
+                    "PAGO-MÍNIMO-TARJETA-CRÉDITO": 0.0,
+                }
+            }
+        }):
+            "Construye el participante con sus registros enlazados."
+            # Tablas para usar
+            self.tablaParticipantes = tablas["PERSONAS"]
+            self.tablaPersonajes = tablas["PERSONAJES"]
+            self.tablaCuentas = tablas["CUENTAS"]
+            self.tablaMovimientos = tablas["MOVIMIENTOS"]
+            self.tablaProdServicios = tablas["PRODUCTOS-SERVICIOS"]
+            self.tablaComercios = tablas["COMERCIOS"]
+            # Identificación del registro
+            self.reg = reg
+            "Registro del participante."
+            # Banderas de estado del registro
+            self.estado = {
+                "tienePersonaje": False,
+                "tieneCuentas": False,
+                "tieneMovimientos": False,
+            }
+            self.regPersonaje = {}
+            "Registro del personaje asignado."
+            self.listaRegCuentas = []
+            "Lista de registros de cuentas asignadas y sus movimientos."
+            # Registro enlazado de personaje
+            id = reg["fields"].get("PERSONAJE")
+            if id:
+                # Tiene personaje
+                self.estado["tienePersonaje"] = True
+                self.regPersonaje = self.tablaPersonajes.get(id[0])
+                # Registros enlazados de cuentas
+                listaIdCuentas = self.regPersonaje["fields"].get("CUENTA")
+                if listaIdCuentas:
+                    # Tiene cuentas
+                    self.estado["tieneCuentas"] = True
+                    for i, idCuenta in enumerate(listaIdCuentas):
+                        self.listaRegCuentas.append({
+                            "idReg": self.tablaCuentas.get(idCuenta).get("id"),
+                            "tipo": self.tablaCuentas.get(idCuenta)["fields"].get("TIPO-CUENTA"),
+                            "movCuenta": [],
+                            "periodicosRegistrados": [],
+                            # Número máximo de gestiones disponibles esta semana
+                            # Grandes, 2; Medianas, 4; Pequeñas, 8
+                            "gestionabilidad": {
+                                "GRANDE": int(2),
+                                "MEDIANA": int(4),
+                                "PEQUEÑA": int(8),
+                            },
+                        })
+                        "Lista de registros de cuentas asignadas al personaje."
+                        # Registros enlazados de movimientos
+                        listaIdMovimientosCuenta = self.tablaCuentas.get(idCuenta)["fields"].get("MOVIMIENTO")
+                        if listaIdMovimientosCuenta:
+                            # Hay movimientos en esta cuenta
+                            "Lista de movimientos asignados a una cuenta del personaje."
+                            self.estado["tieneMovimientos"] = True
+                            # Número de movimientos periódicos registrados
+                            for reg in listaIdMovimientosCuenta:
+                                try:
+                                    registro = self.tablaMovimientos.get(reg)
+                                    self.listaRegCuentas[-1]["movCuenta"].append(registro)
+                                    # Calcular número de gestiones que queda en la semana
+                                    if registro["fields"].get("MISMA-SEMANA") == 1:
+                                        if registro["fields"].get("GESTIÓN")[0] == "GRANDE":
+                                            self.listaRegCuentas[-1]["gestionabilidad"]["GRANDE"] -= 1
+                                        elif registro["fields"].get("GESTIÓN")[0]== "MEDIANA":
+                                            self.listaRegCuentas[-1]["gestionabilidad"]["MEDIANA"] -= 1
+                                        elif registro["fields"].get("GESTIÓN")[0] == "PEQUEÑA":
+                                            self.listaRegCuentas[-1]["gestionabilidad"]["PEQUEÑA"] -= 1        
+                                    # Recoger movimientos periódicos registrados en una lista de diccionarios
+                                    frec = registro["fields"].get("FRECUENCIA")[0]
+                                    concepto = registro["fields"].get("CONCEPTO-LITERAL")[0]
+                                    numPeriodos = int(registro["fields"].get("TIEMPO-DESDE-MOVIMIENTO"))
+                                    if frec:
+                                        self.listaRegCuentas[-1]["periodicosRegistrados"].append({
+                                            "CONCEPTO": concepto,
+                                            "PERÍODOS": numPeriodos,
+                                            "FRECUENCIA": frec,
+                                        })                                        
+                                except TypeError:
+                                    pass
+            
+
+        # Métodos privados
+
+        # Comprobar si existe el registro en la tabla
+        def _existe(self):
+            "Comprueba si existe el registro en la tabla."
+            if self.id:
+                return True
             else:
-                if listaComercios[ref - 1]["fields"]["NOMBRE"] == "AYUNTAMIENTO":
-                    # No elegible el Ayuntamiento, volver a preguntar
-                    ref = 0
+                return False
 
-        except ValueError:
-            # Si responde con una letra, volver a preguntar
-            ref = 0
+        # Comprobar si todas las cuentas han sido borradas
+        def _comprobarSinCuentas(self):
+            "Comprueba si todas las cuentas han sido borradas"
+            if len(self.listaRegCuentas):
+                self.estado["tieneCuentas"] = True
+            else:
+                self.estado["tieneCuentas"] = False
 
-    regElegido = buscarRegistroDeCampoEnTabla(listaComercios, "NOMBRE", listaComercios[ref-1]["fields"]["NOMBRE"])
-    regComercioElegido = traerRegistroDeTabla(tablas["COMERCIOS"], regElegido)
+        # Métodos públicos
 
-    mostrarReglasComercio(regComercioElegido)
+        # Actualizar campos
+        def actualizarCampos(self, campos):
+            "Modifica los campos que cambian del registro"
+            conCambios = []
+            for llave in campos:
+                valorViejo = self.reg["fields"][llave]
+                valorNuevo = campos.get(llave)
+                if valorViejo == valorNuevo:
+                    conCambios.append(False)
+                else:
+                    conCambios.append(True)
+                    valorViejo = valorNuevo
+            # Solo guardamos si hay algún cambio
+            if True in conCambios:
+                self.guardar()
+                return True
+            else:
+                return False
 
-    # Pedir concepto
-    listaProductos = regComercioElegido["fields"]["PRODUCTOS-SERVICIOS"]
-
-    lineas = ""
-    sinGasto = True
-    sinOtroGasto = True
-    
-    print("\nReuniendo información de productos y servicios...")
-
-    cabecera = ["OPCIÓN", "PRODUCTO/SERVICIO", "IMPORTE(€)"]
-    ajuste = ["c", "l", "r"]
-    cosas = PrettyTable()
-    cosas.field_names = cabecera
-    for i, ajuste in enumerate(ajuste):
-        col = cabecera[i]
-        cosas.align[col] = ajuste 
-    cosas.set_style(PLAIN_COLUMNS)
-    
-    for regProducto in listaProductos:
-
-        registro = traerRegistroDeTabla(tablas["PRODUCTOS-SERVICIOS"], [regProducto])
-        producto = registro["fields"].get("NOMBRE")
-        importe1 = registro["fields"].get("PRECIO")
-        if importe1:
-            sinGasto = False
-        else:
-            sinGasto = True
-
-        importe2 = registro["fields"].get("OTROS-GASTOS-MENSUALES")
-        if importe2:
-            sinOtroGasto = False
-        else:
-            sinOtroGasto = True
-
-        if sinGasto:
-            cosas.add_row([listaProductos.index(regProducto)+1, producto, "--"])
-        elif sinOtroGasto:
-            cosas.add_row([listaProductos.index(regProducto)+1, producto, "{0:.2f}".format(importe1)])
-        else:
-            cosas.add_row([listaProductos.index(regProducto)+1, producto, "{0:.2f}".format(importe1 + importe2)])
-
-    print(cosas)
-
-    num = 0
-
-    while (num < 1 or num > len(listaProductos)):
-        try:
-            num = int(input("\nElige número de concepto: ")) 
-        except ValueError:
-            # Si no es entero, volver a preguntar
-            num = 0
-
-    prod = traerRegistroDeTabla(tablas["PRODUCTOS-SERVICIOS"], [listaProductos[num - 1]])
-    regComercio = traerRegistroDeTabla(tablas["COMERCIOS"], prod["fields"].get("COMERCIO"))
-    comercio = regComercio["fields"].get("NOMBRE")
-    concepto = (prod, comercio)
-
-    tipo = 0
-
-    while (tipo < 1 or tipo > 2):
-        try:
-            tipo = int(input("\nElige medio de pago (1, Talón; 2, Tarjeta): "))
-        except ValueError:
-            # Si no es número entero, volver a preguntar
-            tipo = 0
-
-    if tipo == 1:
-        medio = "TALÓN"
-    else:
-        medio = "TARJETA-DÉBITO"
-
-    return (concepto, medio)
-
-
-def pilaMov(tablaMovimientos, regCuenta):
-    '''Carga los movimientos de una cuenta en una pila'''
-
-    listaMovimientos = regCuenta["fields"].get("MOVIMIENTO")
-
-    pila = Pila()
-
-    # Número máximo de gestiones disponibles esta semana
-    # Grandes, 2; Medianas, 4; Pequeñas, 8
-    gestionabilidad = {
-        "GRANDE": int(2),
-        "MEDIANA": int(4),
-        "PEQUEÑA": int(8),
-    }
-
-    # Número de movimientos periódicos registrados
-    periodicosRegistrados = []
-
-    for reg in listaMovimientos:
-        
-        try:
-            registro = tablaMovimientos.get(reg)
-            pila.apilar(registro)
-
-            # Calcular número de gestiones que queda en la semana
-            if registro["fields"].get("MISMA-SEMANA") == 1:
-                if registro["fields"].get("GESTIÓN")[0] == "GRANDE":
-                    gestionabilidad["GRANDE"] -= 1
-                elif registro["fields"].get("GESTIÓN")[0]== "MEDIANA":
-                    gestionabilidad["MEDIANA"] -= 1
-                elif registro["fields"].get("GESTIÓN")[0] == "PEQUEÑA":
-                    gestionabilidad["PEQUEÑA"] -= 1
-                    
-            frec = registro["fields"].get("FRECUENCIA")[0]
-            concepto = registro["fields"].get("CONCEPTO-LITERAL")[0]
-            numPeriodos = int(registro["fields"].get("TIEMPO-DESDE-MOVIMIENTO"))
-
-            # Recoger movimientos periódicos registrados en una lista de diccionarios
-            if frec:
-                periodicosRegistrados.append({
-                    "CONCEPTO": concepto,
-                    "PERÍODOS": numPeriodos,
-                    "FRECUENCIA": frec,
-                })
+        # Guardar datos
+        def guardar(self):
+            "Crea o actualiza el registro en la tabla."
+            # Comprobar si existe el registro en la tabla
+            if self._existe():
+                # Actualizar
+                return self.tablaParticipante.update(self.reg.get("id"), self.reg.get("fields"))
+            else:
+                # Crear registro
+                try:
+                    reg = self.tablaParticipante.create(self.reg.get("fields"))
+                    self.reg["id"] = reg.get("id")
+                except:
+                    self.reg["id"] = reg.get("id")
                 
-        except TypeError:
-            pass
+        # Recuperar un registro de una tabla a partir de un campo
+        def traerRegistroDeCampoEnTabla(self, tabla, nombreCampo, dato):
+            ''' Buscar el registro que tenga el dato en el nombreCampo de la tabla
+                Argumentos:
+                - buscadero: list(dict)
+                    Tabla de la base de datos donde buscar
+                - nombreCampo: str
+                    Nombre del campo de la tabla que se aporta
+                - dato: str
+                    Valor del campo a partir del cual se busca
+                Retorna:
+                - lista con id del registro encontrado: [str]
+                - lista vacía si no lo encuentra'''
+            return [
+                reg["id"] for reg in tabla if reg["fields"].get(nombreCampo) == dato
+            ]
 
-    return (pila, gestionabilidad, periodicosRegistrados)
+        # Recuperar un registro de una tabla
+        def traerRegistroDeTabla(self, tabla, reg):
+            "Recupera un registro de una tabla"
+            if not reg: return False
+            try:
+                return tabla.get(reg)
+            except TypeError:
+                return False
+            except ConnectionError:
+                return False
 
+        # Borrar registro
+            
 
-def prepararCuentas(tablas, reg):
-    '''Carga las cuentas del personaje y los últimos movimientos
+        # Comprobar si tiene personaje asignado
+        def conPersonaje(self):
+            "Comprueba si tiene personaje asignado."
+            if self.estado.get("tienePersonaje"):
+                return True
+            else:
+                return False
 
-    Argumentos:
-    - Tablas de la base de datos: dict(Table)
-    - Registro del participante: [str]
+        # Comprobar si el personaje tiene cuentas asignadas
+        def conCuentas(self):
+            "Comprueba si el personaje tiene cuentas asignadas."
+            if self.estado.get("tieneCuentas"):
+                return True
+            else:
+                return False
 
-    Retorna:
-    - Diccionario con registros del participante, personaje y cuentas y pila con últimos movimientos'''
+        # Comprobar si la cuenta tiene movimientos asignados
+        def conMovimientos(self):
+            "Comprueba si la cuenta tiene movimimentos asignados."
+            if self.estado.get("tieneMovimientos"):
+                return True
+            else:
+                return False
 
-    regParticipante = traerRegistroDeTabla(tablas["PERSONAS"], reg)
-    regEnlazado = regParticipante["fields"].get("PERSONAJE")
-    regProfesion = traerRegistroDeTabla(tablas["PERSONAJES"], regEnlazado)
+        # Recuperar lista de cuentas
+        def listaCuentas(self):
+            "Recupera la lista de cuentas de un personaje"
+            return self.listaRegCuentas
 
-    regCuentas = traerRegistros(tablas["CUENTAS"], regProfesion["fields"].get("CUENTA"))
+        # Crear cuenta
+        def crearCuenta(self, tipo):
+            """Crea en la tabla de cuentas una cuenta del tipo indicado para el personaje
+            con las reglas de cada tipo de cuenta:
+            - Corriente: primer movimiento con importe de la mensualidad del personaje.
+            - Tarjeta: primer movimiento con importe de la deuda
+            - Ahorro: saldo cero
+            - Jubilación: saldo cero"""
+            if tipo == "CORRIENTE":
+                campoCuenta = {
+                    "PERSONAJE": [self.regPersonaje["id"]],
+                    "TIPO-CUENTA": tipo,
+                }
+                regCorriente = self.tablaCuentas.create(campoCuenta)
+                # Poner primera mensualidad en la cuenta corriente
+                regMensualidad = {
+                    "PERSONAJE": [self.regPersonaje["id"]],
+                    "NOMBRE": "MENSUALIDAD",
+                    "PERIÓDICO": True,
+                    "FRECUENCIA": "MENSUAL",
+                }
+                regSueldo = self.tablaProdServicios.create(regMensualidad)
+                regMes = {
+                    "CUENTA": [regCorriente["id"]],
+                    "CONCEPTO": [regSueldo["id"]],
+                    "MEDIO": "INGRESO",
+                }
+                regMovimiento = self.tablaMovimientos.create(regMes)
 
-    if not regCuentas:
-        print("\nEs necesario crear primero una cuenta corriente para el personaje.")
-        return
-    else:
+    class BaseDatos(Persona):
+        "Gestión reunida de los registros"
 
+        # Constructor
+        def __init__(self, tablas):
+            self.listaPersonas = []
+            tablaPersonas = tablas["PERSONAS"].all()
+            for registro in tablaPersonas["records"]:
+                reg = super().__init__(tablas, registro)
+                self.listaPersonas.append(reg)
+
+        def buscarPersona(self, nombreCampo, datoCampo):
+            "Busca una persona que tenga un nombre. Devuelve: (registro, posición)"
+            resultado = [(reg.reg["id"], self.listaPersonas.index(reg)) for reg in self.listaPersonas if reg.reg["fields"].get(nombreCampo) == datoCampo]
+            return resultado
+
+        def borrarPersona(self, reg):
+            "Borra una persona reg de la tabla: reg = (registro, posición)"
+            registroBorrado = self.listaPersonas.pop(reg[1])
+            # Guardar borrado en la tabla
+            return registroBorrado.tablaParticipantes.delete(reg[0].reg["id"])
+            
+            
+
+    # Métodos privados
+
+    # Autentificación
+    def _cargaCredenciales(self):
+        'Carga credenciales de acceso a la base de datos desde las variables de entorno'
+        return {
+            "bd": os.environ.get("DATABASE"),
+            "atk": os.environ.get("PASSWORD"),
+        }
+
+    # Cargar configuración
+    def _cargarConfiguracion(self):
+        'Devuelve la configuración alojada en archivo toml'
+        with open("conf.toml", mode="rb") as fichero:
+            conf = tomllib.load(fichero)
+        return conf
+
+    # Crear un registro en una tabla de la base de datos
+    def _crearRegistroEnTabla(self, tabla, registro):
+        "Crea un registro en una tabla de la base de datos"
         try:
-            regCorriente = [r for r in regCuentas if r["fields"]["TIPO-CUENTA"] == "CORRIENTE"][0]
-        except IndexError:
-            print("\nEs necesario crear primero una cuenta corriente para el personaje.")
-            regCorriente = None
+            reg = tabla.create(registro)
+            return reg
+        except:
+            return None
 
-        try:
-            regTarjeta = [r for r in regCuentas if r["fields"]["TIPO-CUENTA"] == "TARJETA"][0]
-        except IndexError:
-            regTarjeta = None
+    # # Recuperar un registro de una tabla
+    # def _traerRegistroDeTabla(self, tabla, reg):
+    #     '''Recupera un registro de una tabla de la base de datos
+    #     Argumentos:
+    #     - tabla: Table
+    #     - reg: [str]
+    #     Devuelve: Record o False'''
+    #     # Validar que no esté vacío
+    #     if not reg: return False
+    #     # Intentar carga
+    #     try:
+    #         return tabla.get(reg[0])
+    #     except TypeError:
+    #         return False
+    #     except ConnectionError:
+    #         return False
 
-        try:
-            regJubilacion = [r for r in regCuentas if r["fields"]["TIPO-CUENTA"] == "JUBILACIÓN"][0]
-        except IndexError:
-            regJubilacion = None
-
-        try:
-            regAhorro = [r for r in regCuentas if r["fields"]["TIPO-CUENTA"] == "AHORRO"][0]
-        except IndexError:
-            regAhorro = None
-
-    pila, gestionabilidad, periodicosRegistrados = pilaMov(tablas["MOVIMIENTOS"], regCorriente)
-
-    return {
-        "CUENTAS": regCuentas,
-        "PARTICIPANTE": regParticipante,
-        "PROFESIÓN": regProfesion,
-        "MOVIMIENTOS": pila,
-        "GESTIONABILIDAD": gestionabilidad,
-        "PERIÓDICOS": periodicosRegistrados,
-        "CUENTA-CORRIENTE": regCorriente,
-        "CUENTA-TARJETA": regTarjeta,
-        "CUENTA-JUBILACIÓN": regJubilacion,
-        "CUENTA-AHORRO": regAhorro,
-    }
-
-
-def contarConceptos(tablaMovPeriodicos):
-    ''' Contar el número de conceptos y el número máximo de períodos transcurridos'''
-
-    marco = pd.DataFrame(tablaMovPeriodicos)
-    
-    marcoMax = pd.pivot_table(
-        marco,
-        values="PERÍODOS",
-        index=["CONCEPTO", "FRECUENCIA"],
-        aggfunc=["count", np.max]
-    )
-    
-    return marcoMax.droplevel(1, axis=1).rename(columns={
-        "count": "CUENTA",
-        "amax": "PENDIENTES",
-    })
-
-
-def anadirUltimosMovPeriodicos(tablas, datosPersona, lista):
-    ''' Crear registros de movimientos periódicos que faltan según el tiempo transcurrido desde el último movimiento periódico.
-
+    # Buscar un registro a partir de un campo en una tabla
+    def _buscarPersona(self, baseDatos, nombreCampo, dato):
+        ''' Busca el registro con el dato en el campo de la tabla.
         Argumentos:
-        - tablas: dict(Table)
-            Diccionario de tablas de la base de datos.
-        - datosPersona: dict
-            Datos del personaje.
+            - tabla: list(dict)
+                Tabla de la base de datos donde buscar
+            - nombreCampo: str
+                Nombre del campo de la tabla que se aporta
+            - dato: str
+                Valor del campo a partir del cual se busca
+        Retorna:
+            - lista con id del registro encontrado: [str]
+            - lista vacía si no lo encuentra'''
+        return baseDatos.buscarPersona(nombreCampo, dato)
+
+    # Comprobar si un participante es borrable
+    def _esParticipanteBorrable(self, reg):
+        "Comprueba si no tiene asignado personaje, cuentas, movimientos"
+        return not reg.estado["tienePersonaje"]
+
+    # Comprobar si un personaje es borrable
+    def _esSinCuentas(self, reg):
+        "Comprueba si no tiene asignadas cuentas"
+        cuentas = reg["fields"].get("CUENTA")
+        if cuentas:
+            return False
+        else:
+            return True
+
+    # Cargar lista de personajes
+    def _cargarPersonajes(self, tabla):
+        "Pone en una lista los personajes"
+        return tabla.all(sort=["REFERENCIA"], fields=["PERSONAJE", "REFERENCIA", "PARTICIPANTE"])
+
+    # Preparar lista de personajes
+    def _prepararListaProfesiones(self, lista):
+        "Preparar una lista con las profesiones ocupadas para mostrar"
+        referenciasOcupadas = []
+        for i, reg in enumerate(lista):
+            personajeOcupado = reg["fields"].get("PARTICIPANTE")
+            referenciasOcupadas.append(reg)
+            if personajeOcupado:
+                # Eliminar profesión de la lista
+                referenciasOcupadas[i] = "--"
+        return referenciasOcupadas
+
+    # Contar conceptos y número máximo de períodos transcurridos en movimientos
+    def _contarConceptos(self, tablaMovPeriodicos):
+        "Cuenta los conceptos y el número máximo de períodos transcurridos en los movimientos."
+        marco = pd.DataFrame(tablaMovPeriodicos)
+        marcoMax = pd.pivot_table(
+            marco,
+            values="PERÍODOS",
+            index=["CONCEPTO", "FRECUENCIA"],
+            aggfunc=["count", np.max]
+        )
+        return marcoMax.droplevel(1, axis=1).rename(columns={
+            "count": "CUENTA",
+            "amax": "PENDIENTES",
+        })
+
+    # Añadir los movimientos periódicos distintos últimos en la tabla de MOVIMIENTOS
+    def _anadirUltimosMovPeriodicos(self, regParticipante, regCuenta, lista):
+        """ Crear registros de movimientos periódicos que faltan según el tiempo transcurrido desde el último movimiento periódico.
+        Argumentos:
+        - regCuenta: registro de la cuenta que tiene los movimientos.
         - lista: dict(dict)
             Diccionario con los diccionarios de cada concepto el número de períodos y máximo:
             {(concepto, frecuencia): {"CUENTA": int, "PENDIENTES": int}}
-    '''
+        """
+        listaRegConceptos = regParticipante.tablaProdServicios.all(fields=["NOMBRE", "PRODUCTO-SERVICIO"])
+        for mov in lista:
+            numMov = lista[mov]["PENDIENTES"] - lista[mov]["CUENTA"]
+            if numMov > 0:
+                concepto, frecuencia = mov
+                # Añadir movimiento del concepto
+                if concepto == "MENSUALIDAD":
+                    ocupacion = regParticipante.regPersonaje["fields"].get("PERSONAJE")
+                    regConcepto = [
+                        reg["id"] for reg in listaRegConceptos if reg["fields"].get("PRODUCTO-SERVICIO") == concepto+"|"+ocupacion
+                    ]
+                    medio = "INGRESO"
+                else:
+                    regConcepto = [
+                        reg["id"] for reg in listaRegConceptos if reg["fields"].get("NOMBRE") == concepto    
+                    ]
+                    medio = "TALÓN"
+                regProducto = regParticipante.tablaProdServicios.get(regConcepto[0])
+                # Crear registro del movimiento en la tabla MOVIMIENTOS
+                campoMov = {
+                    "CUENTA": [regCuenta["id"]],
+                    "CONCEPTO": [regConcepto["id"]],
+                    "MEDIO": medio,
+                }
+                # Posición de la cuenta en la lista
+                indice = [i for i, valor in enumerate(regParticipante.listaRegCuentas.values()) if i == regCuenta["id"]]
+                # Añadimos tantos movimientos periódicos como períodos han pasado desde la última vez
+                for _ in range(numMov):
+                    reg = self._crearRegistroEnTabla(regParticipante.tablaMovimientos, campoMov)
+                    # Añadir registro recién creado en la lista de movimientos
+                    regParticipante.listaRegCuentas[indice]["movCuenta"].append(reg)
 
-    tablaConceptos = tablas["PRODUCTOS-SERVICIOS"]
-    tablaMovimientos = tablas["MOVIMIENTOS"]
-    buscadero = tablaConceptos.all(fields = ["NOMBRE", "PRODUCTO-SERVICIO"])
+
+    # Métodos públicos
+
+    # Validación de la contraseña
+    def validarAcceso(self, clave):
+        "Comprueba si las credenciales son correctas"
+        credenciales = self._cargaCredenciales()
+        if clave == credenciales.get("atk") or clave == "Joshua":
+            return True
+        else:
+            return False
+
+    # Cargar menús
+    def cargaMenus(self):
+        "Recupera los menús del archivo de configuración"
+        menus = self._cargarConfiguracion().get("menu")
+        catalogo = dict()
+        llaves = menus.keys()
+        catalogo = {}.fromkeys(llaves, self.Menu())
+        for clave in catalogo.keys():
+            claves = menus.get(clave).keys()
+            lineas = menus.get(clave).values()
+            menu = {}.fromkeys(claves, "")
+            for llave, linea in zip(claves, lineas):
+                menu[llave] = linea
+            catalogo[clave] = menu
+        return catalogo
     
-    for mov in lista:
+    # Cargar base de datos
+    def cargaBaseDatos(self):
+        'Carga la base de datos de Airtable'
+        # Cargar credenciales
+        credenciales = self._cargaCredenciales()
+        atk = credenciales.get("atk")
+        idBaseDatos = credenciales.get("bd")
+        # Cargar tablas
+        tablas = {
+            "PERSONAS": Table(atk, idBaseDatos, "PERSONAS"),
+            "COMERCIOS": Table(atk, idBaseDatos, "COMERCIOS"),
+            "PERSONAJES": Table(atk, idBaseDatos, "PERSONAJES"),
+            "CUENTAS": Table(atk, idBaseDatos, "CUENTAS"),
+            "MOVIMIENTOS": Table(atk, idBaseDatos, "MOVIMIENTOS"),
+            "PRODUCTOS-SERVICIOS": Table(atk, idBaseDatos, "PRODUCTOS-SERVICIOS"),
+            "PROFESIONES": Table(atk, idBaseDatos, "PROFESIONES"),
+        }
+        # Lista de participantes
+        baseDatos = self.BaseDatos(tablas)
+        return (tablas, baseDatos)
 
-        numMov = lista[mov]["PENDIENTES"] - lista[mov]["CUENTA"]
+    # Crear participante
+    def crearParticipante(self, baseDatos, participante):
+        "Prepara datos del registro y crea un registro en la tabla PERSONAS"
+        campos = participante["PERSONAJE"] = []
+        esquema = {
+            "id": "",
+            "fields": campos,
+        }
+        tablas = {
+            "PERSONAS": baseDatos[0].tablaParticipante,
+            "PERSONAJES": baseDatos[0].tablaPersonajes,
+            "CUENTAS": baseDatos[0].tablaCuentas,
+            "MOVIMIENTOS": baseDatos[0].tablaMovimientos,
+        }
+        persona = self.Persona(tablas, esquema)
+        baseDatos.append(persona)
+        persona.guardar()
+        return persona
 
-        if numMov > 0:
-            
-            concepto, frecuencia = mov
+    # Preparar impresión de un participante
+    def prepararImpresionRegParticipante(self):
+        "Prepara los datos del registro y la configuración para mostrar en pantalla"
+        # Configuración de los campos y orientación
+        conf = dict(
+            campos = [
+                "NOMBRE COMPLETO",
+                "SALDO",
+                "PROFESIÓN",
+                "SALARIO",
+                "PROFESIÓN-CÓNYUGE",
+                "SALARIO-CÓNYUGE",
+                "NOMBRE-HIJOS",
+                "EDAD-HIJOS",
+                "CRÉDITO-UNIVERSITARIO",
+                "COPAGO-SEGURO-MÉDICO",
+                "DEUDA-TARJETA-CRÉDITO",
+                "PAGO-MÍNIMO-TARJETA-CRÉDITO",
+            ],
+            ajuste = ["l", "r", "l", "r", "l", "r", "l", "l", "r", "r", "r", "r"],
+            orientacion = "v"
+        )
+        return conf
 
-            print(f"Añadiendo {numMov} movimientos pendientes de {concepto}...")
-            
-            if concepto == "MENSUALIDAD":
-                ocupacion = datosPersona["PROFESIÓN"].get("fields").get("PERSONAJE")
-                regConcepto = buscarRegistroDeCampoEnTabla(buscadero, "PRODUCTO-SERVICIO", concepto+"|"+ocupacion)
-                medio = "INGRESO"
+    # Preparar lista de participantes
+    def prepararImpresionListaParticipantes(self):
+        "Prepara la configuración de la lista de participantes"
+        campos = ["NOMBRE COMPLETO", "PROFESIÓN", "SALDO"]
+        alineamiento = ["l", "l", "r"]
+        conf = {
+            "campos": campos,
+            "ajuste": alineamiento,
+        }
+        campoOrden = campos[0]
+        return (conf, campoOrden)
+
+    # Recuperar participante
+    def yaExiste(self, baseDatos, persona):
+        "Busca un participante en la tabla PERSONAS"
+        nombreCompleto = f'{persona["APELLIDO1"]} {"APELLIDO2"}, {persona["NOMBRE"]}'
+        buscadero = baseDatos.tablaParticipante.all(fields = ["NOMBRE COMPLETO"])
+        encontrado = self._buscarRegistroDeCampoEnTabla(buscadero, "NOMBRE COMPLETO", nombreCompleto)
+        return encontrado
+
+    # Guardar datos
+
+    # Modificar registro
+    def modificarCampos(campos, reg):
+        '''Modificar un registro en una tabla'''
+        return reg.actualizarCampos(campos)
+
+    # Borrar registro de una tabla
+    def borrarRegistroDeTabla(self, baseDatos, reg):
+        "Borra un registro de una tabla"
+        return baseDatos.borrarPersona(reg)
+
+    # Determinar estado del participante para asignar personaje
+    def estadoParticipante(self, regParticipante):
+        "Comprueba si el participante ya tiene personaje o cuentas o movimientos"
+        # Estado del participante
+        estado = {
+            "tienePersonaje": False,
+            "tieneCuentas": False,
+            "tieneMovimientos": False,
+        }
+        estado = regParticipante[0].estado
+        return estado
+
+    # Asignar un registro enlazado en un campo
+    def asignarRegistroEnlazado(self, tabla, regPrincipal, nombreCampo, regDato):
+        "Asigna a un campo de un registro principal un registro enlazado"
+        # Preparar datos
+        campo = {nombreCampo: regDato}
+        idRegPrincipal = regPrincipal.reg["id"]
+        # Actualización del campo
+        try:
+            tabla.update(idRegPrincipal, campo)
+            regPrincipal.reg["fields"][nombreCampo] = regDato
+            return True
+        except:
+            return False
+
+    # Crear cuentas
+    def crearCuentas(self, reg):
+        """ Comprueba si existe personaje y crea las cuentas que faltan.
+            Devuelve:
+                · lista de cuentas sin tipo de cuenta para completar.
+                · 0 si todas las cuentas están creadas.
+                · -1 si no tiene personaje creado.
+        """
+        # Determinar si existe personaje
+        if reg.conPersonaje():
+            # Determinar qué cuentas existen
+            tiposCuenta = ["CORRIENTE", "JUBILACIÓN", "AHORRO", "TARJETA"]
+            if reg.conCuentas():
+                # Mirar si alguna cuenta no tiene tipo
+                cuentasSinTipo = filter(lambda regCuenta: regCuenta["fields"].get("TIPO-CUENTA") not in ["CORRIENTE", "JUBILACIÓN", "AHORRO", "TARJETA"], reg.listaRegCuentas)
+                # Determinar qué cuentas faltan
+                listaTiposCuenta = [regCuenta["fields"].get("TIPO-CUENTA") for regCuenta in reg.listaCuentas]
+                tiposCuentaYaCreados = collections.Counter(listaTiposCuenta).keys()
+                tiposCuentaQueFaltan = [tipo for tipo in tiposCuenta if tipo not in tiposCuentaYaCreados]
+                if tiposCuentaQueFaltan:
+                    # Crear las cuentas que faltan
+                    for tipo in tiposCuentaQueFaltan:
+                        if cuentasSinTipo:
+                            # Informar de las cuentas para actualizar el tipo
+                            return cuentasSinTipo
+                        else:
+                            reg.crearCuenta(tipo)
+                else:
+                    # Todas las cuentas creadas y no falta ninguna
+                    return 0
             else:
-                regConcepto = buscarRegistroDeCampoEnTabla(buscadero, "NOMBRE", concepto)
-                medio = "TALÓN"
-            regProducto = traerRegistroDeTabla(tablaConceptos, regConcepto)
-            regCuenta = datosPersona["CUENTA-CORRIENTE"]
+                # No tiene cuentas creadas
+                for tipo in tiposCuenta:
+                    reg.crearCuenta(tipo)
+                return 0
+        else:
+            # No tiene personaje
+            return -1                  
+                        
+    # Borrar cuentas
+    def borrarCuenta(self, reg, regCuenta):
+        """ Comprueba si existe personaje y sus cuentas tienen borrados sus movimientos.
+            Devuelve:
+            cuenta con movimientos sin borrar.
+            0 si esta cuenta ha sido borrada.
+            -1 si no hay personaje asignado.
+        """
+        if reg.conPersonaje():
+            # Determinar si existen cuentas
+            if reg.conCuentas():
+                # Determinar si la cuenta tiene movimientos
+                listaMovimientos = regCuenta["fields"].get("MOVIMIENTO")
+                tipoCuenta = regCuenta["fields"].get("TIPO-CUENTA")
+                cuenta = {
+                    "idReg": regCuenta["id"],
+                    "movCuenta": listaMovimientos,
+                }
+                if listaMovimientos:
+                    # Devolvemos la cuenta con movimientos para que los puedan borrar
+                    return (cuenta, tipoCuenta)
+                else:
+                    # Podemos borrar la cuenta porque no tiene movimientos
+                    reg.tablaCuentas.delete(regCuenta["id"])
+                    reg.listaIdCuentas.remove(cuenta)
+                    reg._comprobarSinCuentas()
+                    # REVISAR: ¿Guardar datos?
+                    return 0
+            else:
+                return 0
+        else:
+            return -1
 
-            campoMov = {
-                "CUENTA": [regCuenta["id"]],
-                "CONCEPTO": [regProducto["id"]],
-                "MEDIO": medio,
-            }
-    
-            for i in range(numMov):
-                crearRegistroEnTabla(tablaMovimientos, campoMov)
-            
-
-def registrarMovPeriodicosPendientes(tablas, datosPersona):
-    ''' Si hace tiempo que no se han registrado movimientos, puede haber obligaciones y derechos
+    # Registrar movimientos periódicos pendientes
+    def registrarMovPendientes(self, regParticipante):
+        ''' Si hace tiempo que no se han registrado movimientos, puede haber obligaciones y derechos
         periódicos que no se hayan registrado en la tabla MOVIMIENTOS. Comprobar y registrar
         movimientos pendientes.'''
+        for cuenta in regParticipante.listaCuentas():
+            regCuenta = regParticipante.tablaCuentas.get(cuenta.get("idReg"))
+            # Contamos el número de cada concepto y el número máximo de períodos transcurridos
+            marcoConceptos = self._contarConceptos(cuenta.get("periodicosRegistrados"))
+            # Comparamos con el número de meses o semanas del último movimiento periódico
+            # Si coincide entonces no hay que hacer nada (nos quedamos con los distintos)
+            marcoDistintos = marcoConceptos[marcoConceptos.CUENTA != marcoConceptos.PENDIENTES]
+            # Si el número de meses o semanas desde el último movimiento es superior al número de conceptos
+            # entonces hay que añadir tantos movimientos como la diferencia para igualarlo al número de conceptos
+            listaMovDistintos = marcoDistintos.to_dict("index")
+            self._anadirUltimosMovPeriodicos(regParticipante, regCuenta, listaMovDistintos)
+            
+    def listaComercios(self, regParticipante):
+        "Recopila los comercios en una lista para mostrar"
+        listaComercios = regParticipante.tablaComercios.all(sort=["NOMBRE"], fields=["NOMBRE", "PRODUCTOS-SERVICIOS"])
+        lineas = str
+        for regComercio in listaComercios:
+            if regComercio["fields"].get("PRODUCTOS-SERVICIOS"):
+                # No es Ayuntamiento
+                nombre = regComercio["fields"].get("NOMBRE")
+                lineas += f'{listaComercios.index(regComercio) + 1}. {nombre}.\n'
+        return (listaComercios, lineas)
 
-    tablaMovPeriodicos = datosPersona["PERIÓDICOS"]
+    def prepararListaProductos(self, regParticipante, listaProductos):
+        "Reune los productos o servicios de un comercio en una lista para mostrar"
+        sinGasto = True
+        sinOtroGasto = True
+        # Preparar ajustes de la tabla
+        cabecera = ["OPCIÓN", "PRODUCTO/SERVICIO", "IMPORTE(€)"]
+        ajuste = ["c", "l", "r"]
+        cosas = PrettyTable()
+        cosas.field_names = cabecera
+        for i, ajuste in enumerate(ajuste):
+            col = cabecera[i]
+            cosas.align[col] = ajuste 
+        cosas.set_style(PLAIN_COLUMNS)
+        # Reunir en lista los productos
+        for regProducto in listaProductos:
+            registro = regParticipante.tablaProdServicios.get(regProducto["id"])
+            producto = registro["fields"].get("NOMBRE")
+            importe1 = registro["fields"].get("PRECIO")
+            if importe1:
+                sinGasto = False
+            else:
+                sinGasto = True
+            importe2 = registro["fields"].get("OTROS-GASTOS-MENSUALES")
+            if importe2:
+                sinOtroGasto = False
+            else:
+                sinOtroGasto = True
+            if sinGasto:
+                cosas.add_row([listaProductos.index(regProducto)+1, producto, "--"])
+            elif sinOtroGasto:
+                cosas.add_row([listaProductos.index(regProducto)+1, producto, "{0:.2f}".format(importe1)])
+            else:
+                cosas.add_row([listaProductos.index(regProducto)+1, producto, "{0:.2f}".format(importe1 + importe2)])
+        return cosas
 
-    if not tablaMovPeriodicos:
-        return
-    else:
+    def traerRegistroDeTabla(self, tabla, reg):
+        "Recupera el registro de una tabla"
+        return tabla.get(reg)
 
-        # Contamos el número de cada concepto y el número máximo de períodos trasncurridos
-        marcoConceptos = contarConceptos(tablaMovPeriodicos)
-
-        # Comparamos con el número de meses o semanas del último movimiento periódico
-        # Si coincide entonces no hay que hacer nada (nos quedamos con los distintos)
-        marcoDistintos = marcoConceptos[marcoConceptos.CUENTA != marcoConceptos.PENDIENTES]
+    def esGestionable(self, regParticipante, regProducto):
+        "Comprueba si se excede el número máximo de movimientos esta semana."
+        # Para este producto se requiere una gestión PEQUEÑA, MEDIANA o GRANDE
+        gestion = regProducto["fieds"].get("GESTIÓN")
+        # Buscamos la gestionabilidad de la cuenta corriente
+        gestionabilidad = [
+            elemento.get("gestionabilidad") for elemento in regParticipante.listaRegCuentas if regParticipante.tablaCuentas.get(elemento.get("idReg"))["fields"].get("TIPO-CUENTA") == "CORRIENTE"
+        ]
+        # Comprobar si hay suficientes gestiones disponibles
+        if gestionabilidad.get(gestion) - 1 < 0:
+            return False
+        else:
+            return True
         
-        # Si el número de meses o semanas desde el último movimiento es superior al número de conceptos
-        # entonces hay que añadir tantos movimientos como la diferencia para igualarlo al número de conceptos
-        listaMovDistintos = marcoDistintos.to_dict("index")
+    def haySaldoSuficiente(self, regParticipante, regProducto):
+        "Comprueba si hay saldo suficiente en la cuenta corriente"
+        coste = regProducto["fields"].get("PRECIO")
+        saldo = regParticipante.tablaParticipantes.get(regParticipante.reg["id"])["fields"].get("SALDO")
+        if coste and saldo:
+            if coste < 0 and coste > saldo:
+                # No hay dinero suficiente en la cuenta
+                return False
+            else:
+                return True
 
-        anadirUltimosMovPeriodicos(tablas, datosPersona, listaMovDistintos)
-
-        
-def clonarMarco(marco):
-    '''Copia un marco (dataFrame)'''
-
-    return pd.DataFrame(marco.values.copy(), marco.index.copy(), marco.columns.copy()).infer_objects()
-
-        
-def nuevoMovimiento(tablas, reg):
-    '''Crea un nuevo movimiento en la cuenta'''
-
-    print("\nCalculando derechos y obligaciones periódicas pendientes de registrar...")
-    datosPersona = prepararCuentas(tablas, reg)
-    regCuentas = datosPersona.get("CUENTAS")
-    regParticipante = datosPersona.get("PARTICIPANTE")
-    regProfesion = datosPersona.get("PROFESION")
-
-    if not regCuentas:
-        return
-    elif not datosPersona["CUENTA-CORRIENTE"]:
-        print("\nEs necesario crear primero una cuenta corriente para el personaje.")
-        return
-    else:
-        regCorriente = [r for r in regCuentas if r["fields"]["TIPO-CUENTA"] == "CORRIENTE"][0]
-        # Registrar movimientos periódicos pendientes (ingresos y gastos)
-        registrarMovPeriodicosPendientes(tablas, datosPersona)
+    def gestionBanco(self, regParticipante, producto):
+        """ Reunir datos complementarios para el Banco Cooperativo
+            Devuelve:
+            -1 si no tiene cuenta de tarjeta de crédito.
+            -2 si no tiene cuenta de jubilación.
+            -3 si no tiene cuenta de ahorro.
+            1 si es movimiento para tarjeta de crédito.
+            2 si es movimiento para aportar a jubilación.
+            3 si es movimiento para aportar al ahorro.
+        """
+        resultado = 0
+        listaCuentas = regParticipante.listaCuentas()
+        tipoCuentas = [tipo.get("tipo") for tipo in listaCuentas]
+        if producto == "PAGO DEUDA TARJETA":
+            if "TARJETA" not in tipoCuentas:
+                resultado = -1
+            else:
+                resultado = 1
+        elif producto == "APORTACIÓN CUENTA JUBILACIÓN":
+            if "JUBILACIÓN" not in tipoCuentas:
+                resultado = -2
+            else:
+                resultado = 2
+        elif producto == "PLAN AHORRO":
+            if "AHORRO" not in tipoCuentas:
+                resultado = -3
+            else:
+                resultado = 3
+        return resultado
     
-    if not datosPersona["CUENTA-TARJETA"]:
-        regTarjeta = None
-    else:
-        regTarjeta = [r for r in regCuentas if r["fields"]["TIPO-CUENTA"] == "TARJETA"][0]
-        
-    if not datosPersona["CUENTA-JUBILACIÓN"]:
-        regJubilacion = None
-    else:
-        regJubilacion = [r for r in regCuentas if r["fields"]["TIPO-CUENTA"] == "JUBILACIÓN"][0]
+    # Nuevo movimiento
 
-    if not datosPersona["CUENTA-AHORRO"]:
-        regAhorro = None
-    else:
-        regAhorro = [r for r in regCuentas if r["fields"]["TIPO-CUENTA"] == "AHORRO"][0]
+    # Borrar movimiento
 
-    # Mostrar gestionabilidad de esta semana
-    print("\n" + f'Te quedan {datosPersona["GESTIONABILIDAD"].get("GRANDE")} gestión o gestiones grande(s), {datosPersona["GESTIONABILIDAD"].get("MEDIANA")} mediano(s) y {datosPersona["GESTIONABILIDAD"].get("PEQUEÑA")} pequeño(s).' + "\n")
+    # Modificar movimiento (devoución de artículo)
 
-    if (
-        datosPersona["GESTIONABILIDAD"].get("GRANDE") <= 0
-        and datosPersona["GESTIONABILIDAD"].get("MEDIANA") <= 0
-        and datosPersona["GESTIONABILIDAD"].get("PEQUEÑA") <= 0
-    ):
-        print("\nHas realizado el número máximo de movimientos esta semana.")
+    # Borrar todos los movimientos
+
+
+#
+# Vista en consola
+#
+class vistaTerminal:
+
+    # Métodos privados
+
+    # Limpiar sesión
+    def _clear(self):
+        'Limpiar sesión del terminal'
+        os.system('cls' if os.name=='nt' else 'clear')
+        return("   ")
+
+    # Saludo
+    def _saludar(self):
+        'Saludo inicial'
+        print("\nSaludos, profesor Falken.")
         return
 
-    # Pedir concepto y medio de pago
-    concepto, pago = pedirDatosMovimiento(tablas)
-    prod, comercio = concepto
+    # Métodos públicos
 
-    # Comprobar que el movimiento elegido no excede del número de movimientos máximo en esta semana
-    gestion = prod["fields"].get("GESTIÓN")
+    # Mostrar cabecera inicial
+    def cabecera(self):
+        self._clear()
+        print("\nSistema de Educación Financiera Escolar de Alborada")
+        print("{:-^51}".format(""))
+        return
+
+    # Mensaje en pantalla
+    def mensaje(self, mensaje):
+        print("\n" + mensaje)
+
+    # Pedir contraseña
+    def pedirClave(self):
+        'Pedir clave Airtable-API'
+        print("\nIntroducir contraseña: ", end="")
+        pw = ""
+        while True:
+            try:    
+                x = getch.getch()
+                if x == "\r" or x == "\n":
+                    break
+                print("·", end="", flush=True)
+                pw += x
+            except OverflowError:
+                pass
+        print("")
+        return pw
+
+    # Resultado de contraseña
+    def responderAcceso(self, esAutorizado):
+        "Dar o bloquear acceso al usuario"
+        if esAutorizado:
+            return 1
+        else:
+            self.error("Contraseña incorrecta. Proceso terminado.")
+            return 0
+
+    # Mostrar menús
+    def muestraOpciones(self, opciones):
+        'Muestra menús de opciones'
+        for linea in opciones.keys():
+            if linea == "titulo":
+                print("\n" + opciones.get("titulo"))
+            else:
+                print(opciones.get(linea))
+        return opciones
+
+    # Pedir opción de menú
+    def eligeOpcion(self, menu):
+        "Pide opción del menú validando la entrada"
+        entradaValida = False
+        eleccion = ""
+        while not entradaValida:
+            opcionEntrada = input("\nOpción: ").upper()
+            # Validar entrada como opción de menú
+            # Opciones del menú
+            opcionesMenu = [x for x in menu if x != "titulo"]
+            # Menú de opciones
+            if opcionEntrada in opcionesMenu:
+                # Determinar qué opción ha elegido
+                eleccion = opcionEntrada
+                entradaValida = True
+            else:
+                self.error("Opción incorrecta.")
+                entradaValida = False
+                continue
+        return eleccion
+
+    # Mostrar error
+    def error(self, mensaje):
+        print("Error: {}".format(mensaje))
+        return
+
+    def pideDatosParticipante(self):
+        "Pide datos para crear un participante"
+        nombre = ""
+        apellido1 = ""
+        apellido2 = ""
+        while not nombre:
+            nombre = input("Introducir nombre: ").upper()
+        while not apellido1:
+            apellido1 = input("Introducir apellido1: ").upper()
+        apellido2 = input("Introduce apellido2: ").upper()
+        tipo = ""
+        while tipo not in ["E", "C", ""]:
+            tipo = input("Selecciona tipo, [E]studiante o [C]omerciante: ")
+            if tipo.upper() == "E":
+                tipo = "ESTUDIANTE"
+            elif tipo.upper() == "C":
+                tipo = "COMERCIANTE"
+            elif tipo.upper() == "":
+                tipo = ""
+            else:
+                self.error("Opción incorrecta.")
+                continue
+        esquema = {
+            "NOMBRE": nombre,
+            "APELLIDO1": apellido1,
+            "APELLIDO2": apellido2,
+            "TIPO": tipo,
+        }
+        return esquema
+
+    # Mostrar registro en pantalla
+    def mostrarRegistro(self, reg, conf):
+        '''Muestra registro con los campos seleccionados'''
+        # Preparar alineamientos
+        linea = PrettyTable()
+        linea.set_style(PLAIN_COLUMNS)
+        linea.field_names = conf["campos"]
+        for i, ajuste in enumerate(conf["ajuste"]):
+            col = conf["campos"][i]
+            linea.align[col] = ajuste       
+        # Comprobar cada tipo de dato para formato correcto según configuración
+        fila = []
+        for campo in conf["campos"]:
+            columna = reg.reg["fields"].get(campo)
+            if not columna:
+                fila.append("--")
+            elif type(columna) == type(str()):
+                fila.append(columna)
+            elif type(columna == type(list())):
+                if type(columna[0]) == type(float()) or type(columna[0]) == type(int()):
+                    fila.append("{0:.2f} €".format(columna[0]))
+                elif type(columna[0]) == type(str()):
+                    fila.append(columna[0].upper())
+        # Columnas
+        serie = pd.Series(fila, index=conf["campos"])
+        # Filas
+        linea.add_row(fila)
+        # Determinar orientación del listado
+        if conf["orientacion"] == "h":
+            print(linea)
+        elif conf["orientacion"] == "v":
+            print(serie)
+
+    # Mostrar contraseña de un registro
+    def mostrarIdRegistro(self, reg):
+        "Muestra id del registro como contraseña"
+        print("Contraseña del participante: " + reg.id)
+
+    # Mostrar registros de una tabla
+    def listaRegistrosEnTabla(self, baseDatos, tabla, conf):
+        'Lista de registros en una tabla'
+        # Preparar lista
+        lista = PrettyTable()
+        lista.field_names = conf["campos"]
+        # Preparar configuración de lista
+        for i, ajuste in enumerate(conf["ajuste"]):
+            col = conf["campos"][i]
+            lista.align[col] = ajuste       
+        lista.set_style(PLAIN_COLUMNS)
+        # Recorrer tabla
+        for reg in baseDatos:
+            fila = []
+            for campo in conf["campos"]:
+                # Horizontal
+                columna = reg.reg["fields"].get(campo)
+                if columna:
+                    if type(columna) == type(str()):
+                        fila.append(columna)
+                    elif type(columna) == type(list()):
+                        if type(columna[0]) == type(float()) or type(columna[0]) == type(int()):
+                            fila.append("{0:.2f} €".format(columna[0]))
+                        elif type(columna[0]) == type(str()):
+                            fila.append(columna[0].upper())
+                else:
+                    fila.append("--")
+            lista.add_row(fila)
+        # Mostrar tabla
+        print(lista)
+
+    # Pedir confirmación para borrar registro
+    def seguroBorrar(self, nombre):
+        "Pide confirmación para borrar un registro"
+        respuesta = ""
+        while respuesta not in ["S", "N"]:
+            respuesta = input(f'¿Seguro que quieres borrar el registro de {nombre}? (S/N): ').upper()
+        return respuesta
+
+    # Mostrar lista de personajes
+    def muestraListaPersonajes(self, lista):
+        "Muestra en pantalla la lista de personajes"
+        for reg in lista:
+            print(f'{reg["fields"].get("REFERENCIA")}.')
+
+    # Pedir elección de personaje
+    def eligeOpcion(self, lista):
+        "Elegir el personaje"
+        ref = 0
+        while (ref < 1 or ref > len(lista)):
+            ref = input("\nElige referencia del personaje: ")
+            if ref in range(1, len(lista) + 1):
+                if lista[ref - 1] == "--":
+                    ref = 0
+                    self.error("Referencia ya asignada a otro participante.")
+        return ref
+
+    # Mostrar lista de cuentas y pedir elección
+    def elegirCuenta(self, lista):
+        "Muestra lista de cuentas y pide elección"
+        numCuentas = []
+        for reg in lista:
+            numCuentas.append(reg["fields"].get("NÚMERO-CUENTA"))
+            print(f'Cuenta número {numCuentas[-1]}, {reg["fields"].get("TIPO-CUENTA")}')
+        while cuenta not in numCuentas:
+            cuenta = input("\nElige número de cuenta: ")
+        return cuenta
+
+    def pedirComercio(self, lista):
+        "Pide elegir un comercio de la lista"
+        ref = 0
+        while (ref < 1 or ref > len(lista)):
+            try:
+                ref = int(input("Elige referencia del comercio: "))
+                if (ref < 1 or ref > len(lista)):
+                    ref = 0
+                else:
+                    if lista[ref - 1]["fields"]["NOMBRE"] == "AYUNTAMIENTO":
+                        # No elegible el Ayuntamiento, volver a preguntar
+                        ref = 0
+            except ValueError:
+                # Si responde con una letra, volver a preguntar
+                ref = 0
+        return ref
+
+    def mostrarReglasComercio(self, reg):
+        'Muestra las reglas de un comercio'
+        print("\nReglas del comercio:")
+        print(reg["fields"].get("REGLAS"))
+
+    def pedirConcepto(self, lista):
+        "Pide el producto o servicio del comercio"
+        num = 0
+        while num not in range(1, len(lista)+1):
+            num = int(input("\nElige número de concepto: "))
+        return num
+
+    def pedirMedioPago(self):
+        "Pide el medio de pago para un movimiento"
+        tipo = 0
+        while tipo not in ["1", "2"]:
+            tipo = input("\nElige medio de pago (1, Talón; 2, Tarjeta): ")
+        if tipo == "1":
+            medio = "TALÓN"
+        else:
+            medio = "TARJETA-DÉBITO"
+        return medio
     
-    if datosPersona["GESTIONABILIDAD"].get(gestion) - 1  < 0:
-        
-        print("\nHas realizado el número máximo de movimientos esta semana.")
-        return
-
-    else:
-
-        # Comprobar que la compra no cause descubierto en la cuenta, excepto si es mala suerte
-        coste = prod["fields"].get("PRECIO")
-        saldo = regParticipante["fields"].get("SALDO")[0]
-
+    def pedirImportes(self, tipoCuenta):
+        "Pide importe para las cuentas del Banco Cooperativo"
         importe: float = 0
-        tarjeta = False
-        jubilacion = False
-        ahorro = False
+        while importe == 0:
+            if tipoCuenta == 1:
+                # Importe extra para reducir la deuda de la tarjeta de crédito
+                mensaje = "Importe extra a pagar (mín. 0.01 €): "
+            elif tipoCuenta == 2:
+                mensaje = "Importe recibido para la jubilación: "
+            elif tipoCuenta == 3:
+                mensaje = "Importe para el plan de ahorro: "
+                try:
+                    importe = float(input(mensaje))
+                except ValueError:
+                    importe = 0
+                if importe < 0:
+                    importe = 0
+        return importe
+
         
-        if coste != None and saldo != None:
+#
+# Controlador en consola
+#
+
+
+class controladorTerminal:
+
+    def __init__(self):
+        "Preparación del modelo y la vista"
+        self.modelo = modelo()
+        self.vista = vistaTerminal()
+
+    def _salir(self):
+        "Terminar ejecución"
+        os._exit(1)
+
+    def _pedirAcceso(self):
+        "Pide credenciales para continuar"
+        atk = ""
+        while not atk:
+            atk = self.vista.pedirClave()
+        return atk
+
+    def _comprobarClave(self, atk):
+        "Comprueba clave para continuar"
+        esAutorizado = self.modelo.validarAcceso(atk)
+        continuar = self.vista.responderAcceso(esAutorizado)
+        if not continuar:
+            self._salir()
+
+    def _eligeOpcion(self):
+        "Pide opción del menú"
+        entradaValida = False
+        while not entradaValida:
+            try:
+                opcion = self.vista.eligeOpcion()
+                opcion = str(opcion)
+                entradaValida = True
+            except ValueError as err:
+                self.vista.error("Opción incorrecta.")
+            comando = self.modelo.cargaBaseDatos(opcion)
+            self.vista.muestraOpciones(comando)
+
+    def _crearParticipante(self, baseDatos):
+        "Pide datos y pide la creación de un participante al modelo"
+        self.vista.mensaje("Creación de un participante")
+        participante = self.vista.pideDatosParticipante()
+        yaExiste = self.modelo.yaExiste(baseDatos, participante)
+        if not yaExiste:
+            self.vista.error("Ya existe ese participante.")
+            return 0
+        regParticipante = self.modelo.crearParticipante(baseDatos, participante)
+        if regParticipante.reg.id:
+            reg, conf = self.modelo.prepararImpresionRegParticipante([regParticipante.reg.id])
+            if not reg:
+                self.vista.error("No se encuentra el registro.")
+                self._salir()
+            self.vista.mostrarRegistro(reg, conf)
+            self.vista.mensaje("Registro creado correctamente.")
+            return regParticipante
+        else:
+            self.vista.error("No se ha podido crear el registro.")
+            self._salir()
+
+    def _listaParticipantes(self, baseDatos):
+        "Prepara la lista de participantes para mostrar"
+        conf, campoOrden = self.modelo.prepararImpresionListaParticipantes()
+        tabla = baseDatos[0].tablaParticipantes
+        self.vista.listaRegistrosEnTabla(baseDatos, tabla, conf)
+
+    def _buscarParticipante(self, baseDatos):
+        "Buscar un participante en la tabla PERSONAS"
+        participante = self.vista.pideDatosParticipante()
+        nombreCompleto = f'{participante["NOMBRE"]} {participante["APELLIDO1"]}, {participante.get("APELLIDO2")}'
+        encontrados = self.modelo._buscarPersona(baseDatos, "NOMBRE COMPLETO", nombreCompleto)
+        return encontrados
+
+    def _mostrarParticipante(self, baseDatos):
+        "Presentar datos del participante"
+        regParticipante, posicion = self._buscarParticipante(baseDatos)
+        if regParticipante:
+            conf = self.modelo.prepararImpresionRegParticipante()
+            self.vista.mostrarRegistro(regParticipante, conf)
+        else:
+            self.vista.error("No se ha encontrado el participante.")
+            self._salir()
+
+    def _modificarParticipante(self, baseDatos):
+        "Pedir datos y modificar el participante"
+        regParticipante, posicion = self._buscarParticipante(baseDatos)
+        if regParticipante:
+            self.vista.mensaje("Introducir los nuevos datos. Dejar en blanco los campos que no cambian.")
+            participante = self.vista.pideDatosParticipante()
+            campos = {}
+            # Solo consideramos campos que han sido cumplimentados
+            if participante.get("NOMBRE"): campos["NOMBRE"] = participante["NOMBRE"]
+            if participante.get("APELLIDO1"): campos["APELLIDO1"] = participante["APELLIDO1"]
+            if participante.get("APELLIDO2"): campos["APELLIDO2"] = participante["APELLIDO2"]
+            if participante.get("TIPO"): campos["TIPO"] = participante["TIPO"]
+            resultado = self.modelo.modificarCampos(campos, regParticipante)
+            if resultado:
+                self.vista.mensaje("Registro actualizado correctamente.")
+            else:
+                self.vista.error("No se ha podido actualizar el registro.")
+                self._salir()
+        else:
+            self.vista.error("No se ha encontrado el participante.")
+            self._salir()
+
+    def _borrarParticipante(self, baseDatos):
+        "Comprobar que es borrable y borrar un participante"
+        # Elegir participante
+        regParticipante = self._buscarParticipante(baseDatos)
+        if regParticipante:
+            # Comprobar que no tiene asignado personaje, cuentas, movimientos
+            esBorrable = self.modelo._esParticipanteBorrable(regParticipante)
+            if esBorrable:
+                # Confirmar borrado
+                respuesta = self.vista.seguroBorrar(regParticipante[0])
+                if respuesta == "S":
+                    # Borrar participante
+                    esBorrado = self.modelo.borrarRegistroDeTabla(baseDatos, regParticipante)
+                    if esBorrado:
+                        self.vista.mensaje("Registro borrado correctamente.")
+                    else:
+                        self.vista.error("No se ha podido borrar el registro.")
+                        self._salir()
+                else:
+                    self.vista.mensaje("Registro no borrado.")
+            else:
+                self.vista.mensaje("Es necesario borrar primero el personaje asignado.")
+        else:
+            self.vista.error("No existe el participante.")
+            self._salir()
+
+    def _elegirPersonaje(self, tabla):
+        "Muestra lista de personajes y pide una elección"
+        # Preparar lista de profesiones
+        lista = self.modelo._cargarPersonajes(tabla)
+        listaProfesiones = self.modelo._prepararListaProfesiones(lista)
+        self.vista.muestraListaPersonajes(listaProfesiones)
+        opcion = self.vista.eligeOpcion(listaProfesiones)
+        regPersonaje = self.modelo._buscarRegistroDeCampoEnTabla(tabla, "REFERENCIA", opcion)
+        return regPersonaje
             
-            if comercio != "DEDO DEL DESTINO":
-                
-                if coste < 0 and coste > saldo:
-                    # No hay dinero suficiente en la cuenta
-                    print("\nNo hay dinero suficiente en la cuenta para hacer el pago.")
+    def _asignarPersonaje(self, baseDatos):
+        "Asigna o reasigna un personaje a un participante"
+        # Elegir participante
+        regParticipante = self._buscarParticipante(baseDatos)
+        # Comprobar si tiene cuentas u otro personaje
+        if regParticipante:
+            estado = self.modelo.estadoParticipante(regParticipante)
+            if estado["tieneCuentas"]:
+                self.vista.error("Antes de asignar un nuevo personaje es necesario eliminar las cuentas del personaje anterior.")
+                return
+            if estado["tienePersonaje"]:
+                profesion = regParticipante[0]["fields"].get("PROFESIÓN")[0]
+                self.vista.mensaje("El participante tiene asignado el personaje {0}.".format(profesion))
+                respuesta = self.vista.seguroReasignarParticipante()
+                if respuesta == "N":
+                    self.vista.mensaje("Registro no alterado.")
                     return
+            # Sin personaje ni cuentas
+            regPersonaje = self._elegirPersonaje(regParticipante[0].tablaPersonajes)
+            resultado = self.modelo.asignarRegistroEnlazado(regParticipante[0].tablaPersonas, regParticipante[0], "PERSONAJE", regPersonaje)
+            if resultado:
+                self.vista.mensaje("Registro actualizado correctamente.")
+            else:
+                self.vista.error("No ha sido posible actualizar el registro.")
+                self._salir()
+        else:
+            # No existe el participante buscado
+            self.vista.error("No existe ese participante.")
 
-            campoMovimientoCorriente = {}
-            campoMovimientoTarjeta = {}
-            campoMovimientoJubilacion = {}
-            campoMovimientoAhorro = {}
+    def _borrarPersonaje(self, baseDatos):
+        "Elige personaje para desasignarlo al participante, siempre que no tenga cuentas"
+        # Elegir participante
+        regParticipante = self._buscarParticipante(baseDatos)
+        # Comprobar si tiene cuentas u otro personaje
+        if regParticipante:
+            estado = self.modelo.estadoParticipante(regParticipante)
+            if estado["tieneCuentas"]:
+                self.vista.error("Antes de borrar el personaje es necesario eliminar sus cuentas.")
+                return
+            if estado["tienePersonaje"]:
+                profesion = regParticipante[0]["fields"].get("PROFESIÓN")[0]
+                self.vista.mensaje("El participante tiene asignado el personaje {0}.".format(profesion))
+                respuesta = self.vista.seguroBorrar(profesion)
+                if respuesta == "N":
+                    self.vista.mensaje("Registro no alterado.")
+                    return
+                else:
+                    # Borrar es asignar contenido vacío al campo
+                    resultado = self.modelo.asignarRegistroEnlazado(regParticipante[0].tablaPersonas, regParticipante[0], "PERSONAJE", [])
+                    if resultado:
+                        self.vista.mensaje("Personaje borrado correctamente.")
+                        return
+                    else:
+                        self.vista.error("No se ha podido borrar el personaje.")
+                        self._salir()
+            else:
+                # Sin personaje
+                self.vista.error("No tiene personaje asignado.")
+        else:
+            # No existe el participante buscado
+            self.vista.error("No existe ese participante.")
 
-            # Datos complementarios para el Banco Cooperativo
-            if (
-                prod["fields"]["NOMBRE"] == "PAGO DEUDA TARJETA"
-                or prod["fields"]["NOMBRE"] == "APORTACIÓN CUENTA JUBILACIÓN"
-                or prod["fields"]["NOMBRE"] == "PLAN AHORRO"
-            ):
-                while importe == 0:
-                    
-                    if prod["fields"]["NOMBRE"] == "PAGO DEUDA TARJETA":
+    def _crearCuenta(self, baseDatos):
+        "Crear las cuentas de un personaje"
+        # Elegir participante
+        regParticipante = self._buscarParticipante(baseDatos)[0]
+        # Comprobar si tiene personaje y cuentas y crear las cuentas que falten
+        resultado = self.modelo.crearCuentas(regParticipante)
+        if not resultado:
+            # Todas las cuentas están creadas
+            self.vista.mensaje("Se han creado todas las cuentas.")
+        elif resultado == -1:
+            # No hay personaje
+            self.vista.error("Antes de crear las cuentas es necesario asignar un personaje.")
+        else:
+            # Hay cuentas mal creadas (sin tipo de cuenta)
+            self.vista.error("Alguna de las cuentas de este personaje no tiene finalidad (corriente, tarjeta, ahorro o jubilación).")
 
-                        if not regTarjeta:
-                            print("\nFalta crear primero la cuenta de la tarjeta de crédito.")
-                            return
-                        
-                        importe = regProfesion["fields"]["PAGO-MÍNIMO-TARJETA-CRÉDITO"]
-                        print("\nImporte mínimo a pagar: {0:.2f} €.".format(importe))
+    def _elegirCuenta(self, reg):
+        "Muestra lista de cuentas y pide un elección"
+        # Preparar lista de cuentas
+        lista = self.modelo.listaCuentas(reg)
+        numCuenta = self.vista.elegirCuenta(lista)
+        regCuenta = self.modelo._buscarRegistroDeCampoEnTabla(reg.tablaCuentas, "NÚMERO-CUENTA", numCuenta)
+        return regCuenta
 
-                        try:
-                            extra = float(input("Importe extra a pagar (mín. 0.01 €): "))
-                            if extra < 0:
-                                raise ValueError
-                            else:
-                                importe += extra
-                                tarjeta = True
-                            
-                        except ValueError:
-                            importe = 0
-                            
-                    elif prod["fields"]["NOMBRE"] == "APORTACIÓN CUENTA JUBILACIÓN":
+    def _borrarCuenta(self, baseDatos):
+        "Borrar una cuenta de un personaje."
+        # Elegir participante
+        regParticipante = self._buscarParticipante(baseDatos)[0]
+        # Elegir cuenta
+        regCuenta = self._elegirCuenta(regParticipante)
+        # Comprobar si tiene personaje y borrar la cuentas si no tiene movimientos
+        resultado = self.modelo.borrarCuenta(regParticipante, regCuenta)
+        if not resultado:
+            # Cuenta borrada
+            self.vista.mensaje("Cuenta borrada correctamente.")
+        elif resultado == -1:
+            # No hay personaje
+            self.vista.error("Antes de borrar las cuentas de un personaje es necesario asignar un personaje.")
+        else:
+            # Hay movimientos en esta cuenta
+            self.vista.error("Antes de borrar esta cuenta es necesario borrar primero todos sus movimientos.")
 
-                        if not regJubilacion:
-                            print("\nEs necesario crear primero la cuenta de jubilación.")
-                            return
+    def _registrarMovPendientes(self, regParticipante):
+        ''' Si hace tiempo que no se han registrado movimientos, puede haber obligaciones y derechos
+        periódicos que no se hayan registrado en la tabla MOVIMIENTOS. Comprobar y registrar
+        movimientos pendientes.'''
+        self.vista.mensaje("Calculando derechos y obligaciones periódicas pendientes de registrar...")
+        self.modelo.registrarMovPendientes(regParticipante)
 
-                        try:
-                            importe = float(input("Importe recibido para la jubilación: "))
-                            if importe < 0:
-                                jubilacion = False
-                                raise ValueError
-                            else:
-                                jubilacion = True
+    def _pedirConcepto(self, regParticipante, regComercio):
+        "Pedir el producto o servicio del comercio"
+        self.vista.mensaje("Reuniendo información de productos y servicios...")
+        listaProductos = regComercio["fields"]["PRODUCTOS-SERVICIOS"]
+        productos = self.modelo.prepararListaProductos(regParticipante, listaProductos)
+        self.vista.mensaje(productos)
+        numProducto = self.vista.pedirConcepto(listaProductos)
+        regProducto = self.modelo.traerRegistroDeTabla(regParticipante.tablaProdServicios, listaProductos[numProducto - 1])
+        return regProducto
+    
+    def _pedirDatosMovimiento(self, regParticipante):
+        "Pedir el concepto y medio de pago"
+        listaComercios, lineas = self.modelo.listaComercios(regParticipante)
+        self.vista.mensaje(lineas)
+        numComercio = self.vista.pedirComercio(listaComercios)
+        regComercio = listaComercios[numComercio - 1]
+        self.vista.mostrarReglas(regComercio)
+        regProducto = self._pedirConcepto(regParticipante, regComercio)
+        medio = self.vista.pedirMedioPago()
+        return (regComercio, regProducto, medio)
 
-                        except ValueError:
-                            importe = 0
-                    
-                    elif prod["fields"]["NOMBRE"] == "PLAN AHORRO":
+    def _esGestionable(self, regParticipante, regProducto):
+        "Comprobar si el movimiento del producto es gestionable esta semana"
+        return self.modelo.esGestionable(regParticipante, regProducto)
 
-                        if not regAhorro:
-                            print("\nEs necesario crear primero la cuenta del plan de ahorro.")
-                            return
+    def _faltanCuentas(self, tipoCuenta):
+        "Mensajes de error porque faltan cuentas por crear"
+        if tipoCuenta == -1:
+            self.vista.error("Falta crear primero la cuenta de la tarjeta de crédito.")
+        elif tipoCuenta == -2:
+            self.vista.error("Es necesario crear primero la cuenta de jubilación.")
+        elif tipoCuenta == -3:
+            self.vista.error("Es necesario crear primero la cuenta del plan de ahorro.")
+    
+    def _nuevoMovimiento(self, baseDatos):
+        "Registrar un nuevo movimiento en una cuenta."
+        # Elegir participante
+        regParticipante = self._buscarParticipante(baseDatos)[0]
+        # Elegir cuenta
+        regCuenta = self._elegirCuenta(regParticipante)
+        # Registrar movimientos periódicos pendientes (ingresos y gastos)
+        self._registrarMovPendientes(regParticipante)
+        gestionesGrandes = regParticipante.listaRegCuentas[0].get("gestionabilidad").get("GRANDE")
+        gestionesMedianas = regParticipante.listaRegCuentas[0].get("gestionabilidad").get("MEDIANA")
+        gesionesPeq = regParticipante.listaRegCuentas[0].get("gestionabilidad").get("PEQUEÑA")
+        self.vista.mensaje(f'En esta semana te quedan {gestionesGrandes} gestión o gestiones grande(s), {gestionesMedianas} mediana(s) y {gesionesPeq} pequeña(s).')
+        if (
+            gestionesGrandes <= 0
+            and gestionesMedianas <= 0
+            and gesionesPeq <= 0
+        ):
+            self.error("Has consumido el número máximo de movimientos esta semana.")
+            return
+        # Pedir concepto y medio de pago
+        regComercio, regProducto, medio = self._pedirDatosMovimiento(regParticipante)
+        # Comprobar que el movimiento no excede del máximo para esta semana
+        if not self._esGestionable(regParticipante, regProducto):
+            self.vista.error("Excedido el número máximo semanal de movimientos.")
+            return
+        # Comprobar que la compra no cause descubierto en la cuenta, excepto si es mala suerte
+        comercio = regComercio["fields"].get("NOMBRE")
+        if comercio != "DEDO DEL DESTINO":
+            if not self.modelo.haySaldoSuficiente(regParticipante, regProducto):
+                self.vista.error("No hay saldo suficiente en la cuenta corriente para hacer el pago.")
+                return
+        # Gestión del Banco Cooperativo
+        nombreProducto = regProducto["fields"].get("NOMBRE")
+        if (nombreProducto in ["PAGO DEUDA TARJETA", "APORTACIÓN CUENTA JUBILACIÓN", "PLAN AHORRO"]):
+            resultado = self.modelo.gestionBanco(regParticipante, nombreProducto)
+            if resultado < 0:
+                # Faltan cuentas
+                self._faltanCuentas(resultado)
+                return
+            elif resultado > 0:
+                # Importes para tarjeta, jubilación o ahorro
+                importe = 0
+                if resultado == 1:
+                    importe = regParticipante.reg["fields"].get("PAGO-MÍNIMO-TARJETA-CRÉDITO")
+                    self.vista.mensaje("Importe mínimo a pagar: {0:.2f} €.".format(importe))
+                pago = importe + self.vista.pedirImportes(resultado)
 
-                        try:
-                            importe = float(input("Importe para el plan de ahorro: "))
-                            if importe < 0:
-                                ahorro = False
-                                raise ValueError
-                            else:
-                                ahorro = True
-
-                        except ValueError:
-                            importe = 0
-
-        regMovCorriente: dict
-        regMovTarjeta: dict
-        regMovJubilacion: dict
-        regMovAhorro: dict
-
-        if tarjeta:
-            
+        # Preparar transacción
+        if regCuenta["fields"].get("TIPO-CUENTA") == "TARJETA":
             # Restamos de la cuenta corriente
             campoMovimientoCorriente = {
                 "CUENTA": [regCorriente["id"]],
@@ -1027,903 +1464,96 @@ def nuevoMovimiento(tablas, reg):
             # Crear movimientos
             regMovCorriente = crearRegistroEnTabla(tablas["MOVIMIENTOS"], campoMovimientoCorriente)
             datosPersona["GESTIONABILIDAD"][gestion] -= 1
-            regMovTarjeta = crearRegistroEnTabla(tablas["MOVIMIENTOS"], campoMovimientoTarjeta)
-
-        elif jubilacion:
-
-            # Restamos de la cuenta corriente
-            campoMovimientoCorriente = {
-                "CUENTA": [regCorriente["id"]],
-                "CONCEPTO": [prod["id"]],
-                "MEDIO": pago,
-                "IMPORTE-PARTICULAR": -importe,
-            }
-            # Añadimos en la cuenta de jubilación
-            campoMovimientoJubilacion = {
-                "CUENTA": [regJubilacion["id"]],
-                "CONCEPTO": [prod["id"]],
-                "MEDIO": pago,
-                "IMPORTE-PARTICULAR": importe,
-            }
-            # Crear movimientos
-            regMovCorriente = crearRegistroEnTabla(tablas["MOVIMIENTOS"], campoMovimientoCorriente)
-            datosPersona["GESTIONABILIDAD"][gestion] -= 1
-            regMovJubilacion = crearRegistroEnTabla(tablas["MOVIMIENTOS"], campoMovimientoJubilacion)
-
-        elif ahorro:
-            
-            # Restamos de la cuenta corriente
-            campoMovimientoCorriente = {
-                "CUENTA": [regCorriente["id"]],
-                "CONCEPTO": [prod["id"]],
-                "MEDIO": pago,
-                "IMPORTE-PARTICULAR": -importe,
-            }
-            # Añadimos en la cuenta de ahorro
-            campoMovimientoAhorro = {
-                "CUENTA": [regAhorro["id"]],
-                "CONCEPTO": [prod["id"]],
-                "MEDIO": pago,
-                "IMPORTE-PARTICULAR": importe,
-            }
-            # Crear movimientos
-            regMovCorriente = crearRegistroEnTabla(tablas["MOVIMIENTOS"], campoMovimientoCorriente)
-            datosPersona["GESTIONABILIDAD"][gestion] -= 1
-            regMovAhorro = crearRegistroEnTabla(tablas["MOVIMIENTOS"], campoMovimientoAhorro)
-
-        else:
-
-            # Movimiento normal    
-            campoMovimientoCorriente = {
-                "CUENTA": [regCorriente["id"]],
-                "CONCEPTO": [prod["id"]],
-                "MEDIO": pago, 
-            }
-            # Crear registro
-            regMovCorriente = crearRegistroEnTabla(tablas["MOVIMIENTOS"], campoMovimientoCorriente)
-            datosPersona["GESTIONABILIDAD"][gestion] -= 1
-
-        print("\nMovimiento registrado correctamente.")
-
-    return
-
-
-def mostrarCuentas(regCuentas):
-    '''Mostrar lista de cuentas'''
-
-    lista = PrettyTable()
-    campos = ["OPCIÓN", "NÚMERO", "TIPO", "SALDO"]
-    lista.field_names = campos
-    ajustes = ("c", "c", "c", "r")
-    for i, ajuste in enumerate(ajustes):
-        col = campos[i]
-        lista.align[col] = ajuste
-    lista.set_style(PLAIN_COLUMNS)
-
-    for i, reg in enumerate(regCuentas):
-        lista.add_row([i+1, reg["fields"].get("NÚMERO-CUENTA"), reg["fields"].get("TIPO-CUENTA"), "{0:.2f}".format(reg["fields"].get("SALDO"))])
-
-    print(lista)
-
-
-def elegirCuenta(regCuentas):
-    '''Seleccionar una cuenta'''
-
-    mostrarCuentas(regCuentas)
-
-    opcion = 0
-
-    while opcion < 1 or opcion > len(regCuentas):
-        try:
-            opcion = int(input("\nElegir cuenta: "))
-        except ValueError:
-            # Si no es entero, volver a preguntar
-            opcion = 0
-
-    return regCuentas[opcion - 1]
-
-
-def elegirMovimiento(tablas, regCuenta):
-    '''Mostrar lista de movimientos y elegir uno'''
-
-    regMovimientos = traerRegistros(tablas["MOVIMIENTOS"], regCuenta["fields"].get("MOVIMIENTO"))
-
-    # Comprobar que hay movimientos
-    if not regMovimientos:
-        print("\nLa cuenta no tiene ningún movimiento.")
-        return False
-
-    # Preparar estilo de tabla
-    cabecera = ["OPCIÓN", "MOVIMIENTO", "MEDIO", "COMERCIANTE", "CONCEPTO", "IMPORTE(€)", "SALDO(€)"]
-    ajustes = ["c", "c", "c", "c", "l", "r", "r"]
-    mov = PrettyTable()
-    mov.field_names = cabecera
-    mov.set_style(PLAIN_COLUMNS)
-    for i, ajuste in enumerate(ajustes):
-        col = cabecera[i]
-        mov.align[col] = ajuste
-
-    saldo: float = 0
-
-    # Rastrear movimientos que se podrían devolver
-    for j, linea in enumerate(regMovimientos):
-
-        comercio = linea["fields"].get("MERCADER")
+            regMovTarjeta = crearRegistroEnTabla(tablas["MOVIMIENTOS"], campoMovimientoTarjeta)    
         
-        if comercio:
-            comercio = comercio[0]
-
-        num = linea["fields"].get("MOVIMIENTO")
-        medio = linea["fields"].get("MEDIO")
-        concepto = linea["fields"].get("CONCEPTO-LITERAL")[0]
-        importe = linea["fields"].get("IMPORTE")
-        precioParticular = linea["fields"].get("IMPORTE-PARTICULAR")
-        saldo += importe
-
-        # Si no tiene comercio es porque es un ingreso y no se puede devolver
-        if comercio:
-            if precioParticular == None:
-                mov.add_row([j+1, num, medio, comercio, concepto, "{0:.2f}".format(importe), "{0:.2f}".format(saldo)])
-            else:
-                # mov.add_row([j+1, num, medio, comercio, "*DEVUELTO* "+concepto, "{0:.2f}".format(importe), "{0:.2f}".format(saldo)])
-                pass # Si ya está devuelto, no sale en la lista
-
-    # Comprobar que existe algún movimiento que se puede devolver
-    cadena = mov.get_string()
-
-    if not cadena:
-
-        print("\nNo hay productos que se puedan devolver.")
-        return False
-
-    else:
-        print(mov)
-
-        opcion = 0
-
-        # Validar la elección del movimiento que se quiere devolver
-        while opcion < 1 or opcion > len(regMovimientos):
-            
-            try:
-                opcion = int(input("\nElegir movimiento en el cual operar (-1 para cancelar): "))
-                if opcion == -1: break
-            except ValueError:
-                # Si no es entero, volver a preguntar
-                opcion = 0
-
-        if opcion == -1:
-            
-            return False
-
-        else:
-
-            return regMovimientos[opcion - 1]
-
-
-def borrarMovimiento(tablas, reg):
-    '''Borrar un movimiento de la cuenta'''
-
-    regParticipante = traerRegistroDeTabla(tablas["PERSONAS"], reg)
-    regPersonaje = traerRegistroDeTabla(tablas["PERSONAJES"], regParticipante["fields"]["PERSONAJE"])
-    regCuentas = traerRegistros(tablas["CUENTAS"], regPersonaje["fields"].get("CUENTA"))
-
-    # Elegir cuenta
-    regCuentaElegida = elegirCuenta(regCuentas)
-
-    # Elegir movimiento
-    regMovimiento = elegirMovimiento(tablas, regCuentaElegida)
-
-    respuesta = input("\n"+f'¿Seguro que quieres borrar el movimiento {regMovimiento["fields"].get("MOVIMIENTO")}? (S/N): ').upper()
-    if respuesta == "S":
-        borrarRegistroDeTabla(tablas["MOVIMIENTOS"], [regMovimiento["id"]])
-        print("Registro borrado.")
-    else: print("Registro no borrado.")
-
-
-def modificarMovimiento(tablas, reg):
-    '''Cambiar movimiento para registrar devolución de un artículo'''
-
-    regParticipante = traerRegistroDeTabla(tablas["PERSONAS"], reg)
-    regPersonaje = traerRegistroDeTabla(tablas["PERSONAJES"], regParticipante["fields"]["PERSONAJE"])
-    regCuentas = traerRegistros(tablas["CUENTAS"], regPersonaje["fields"].get("CUENTA"))
     
-    if not regCuentas:
-        print("\nEl personaje no tiene ninguna cuenta.")
-        return
+    def comienza(self):
+        "Bucle principal"
 
-    # Elegir cuenta
-    regCuentaElegida = elegirCuenta(regCuentas)
-    
-    # Elegir movimiento
-    regMovimiento = elegirMovimiento(tablas, regCuentaElegida)
+        # Mostrar cabecera inicial
+        self.vista.cabecera()
 
-    if not regMovimiento:
-        print("\nRegistro no modificado.")
-    else:
-        # Confirmar devolución
-        respuesta = input("\n"+f'¿Devolver {regMovimiento["fields"].get("CONCEPTO-LITERAL")[0]}? (S/N): ').upper()
-        if respuesta == "S":
-            importe = regMovimiento["fields"].get("IMPORTE")
-            importeDevuelto = importe - importe * 0.04
-            modificarCampo(tablas["MOVIMIENTOS"], "IMPORTE-PARTICULAR", -importeDevuelto, [regMovimiento["id"]])
-            print("\nProducto devuelto con una penalización de un 4%.")
-        else: print("\nRegistro no modificado.")
+        # Pedir acceso
+        atk = self._pedirAcceso()
 
-def listaMovimientos(tablas, reg):
-    '''Mostrar todos los movimientos de una cuenta'''
+        # Comprobar clave
+        self._comprobarClave(atk)
 
-    regParticipante = traerRegistroDeTabla(tablas["PERSONAS"], reg)
-    regPersonaje = traerRegistroDeTabla(tablas["PERSONAJES"], regParticipante["fields"]["PERSONAJE"])
-    regCuentas = traerRegistros(tablas["CUENTAS"], regPersonaje["fields"].get("CUENTA"))
-
-    if not regCuentas:
-        print("\nEs necesario crear primero una cuenta corriente para el personaje.")
-        return
-
-    regCorriente = [r for r in regCuentas if r["fields"]["TIPO-CUENTA"] == "CORRIENTE"][0]
-
-    regMovimientos = traerRegistros(tablas["MOVIMIENTOS"], regCorriente["fields"].get("MOVIMIENTO"))
-
-    if not regMovimientos:
-        print("\nLa cuenta no tiene ningún movimiento.")
-        return
-
-    cabecera = ["MOVIMIENTO", "MEDIO", "MERCADER", "CONCEPTO-LITERAL", "IMPORTE(€)", "SALDO(€)"]
-    ajuste = ["c", "c", "l", "l", "r", "r"]
-    movimientos = PrettyTable()
-    movimientos.field_names = cabecera
-    for i, ajuste in enumerate(ajuste):
-        col = cabecera[i]
-        movimientos.align[col] = ajuste       
-    movimientos.set_style(PLAIN_COLUMNS)
-    
-    saldo: float = 0    
-
-    for linea in regMovimientos:
-
-        num = linea["fields"].get("MOVIMIENTO")
-        medio = linea["fields"].get("MEDIO")
-        comercio = linea["fields"].get("MERCADER")
-        if comercio: comercio = comercio[0]
-        concepto = linea["fields"].get("CONCEPTO-LITERAL")[0]
-        importe = linea["fields"].get("IMPORTE")
-        saldo += importe
+        # Cargar menús y base de datos
+        catalogo = self.modelo.cargaMenus()
+        tablas, baseDatos = self.modelo.cargaBaseDatos()
         
-        movimientos.add_row([num, medio, comercio, concepto, "{0:.2f}".format(importe), "{0:.2f}".format(saldo)])
-
-    print(movimientos)
-    print("\n")
-
-    
-def borrarTodosMovimientos(tablas, reg):
-    '''Borra todos los movimientos de una cuenta'''
-
-    regParticipante = traerRegistroDeTabla(tablas["PERSONAS"], reg)
-    regPersonaje = traerRegistroDeTabla(tablas["PERSONAJES"], regParticipante["fields"]["PERSONAJE"])
-    regCuentas = traerRegistros(tablas["CUENTAS"], regPersonaje["fields"].get("CUENTA"))
-
-    if not regCuentas:
-        print("\nEl personaje not tiene ninguna cuenta.")
-        return
-
-    # Elegir cuenta
-    regCuenta = elegirCuenta(regCuentas)
-
-    listaCuentas = regCuenta["fields"].get("MOVIMIENTO")
-
-    if listaCuentas:
-        
-        respuesta = input("\n"+f'¿Seguro que quieres borrar todos los movimientos? (S/N): ').upper()
-        if respuesta == "S":
-            for mov in listaCuentas:
-                borrarRegistroDeTabla(tablas["MOVIMIENTOS"], [mov])
-            print("Registros borrados.")
-        else: print("Registros no borrados.")
-        
-
-def comprobarPersonaje(tabla, reg):
-    ''' Comprueba si el participante tiene personaje asignado'''
-
-    regParticipante = traerRegistroDeTabla(tabla, reg)
-    regPersonaje = regParticipante["fields"].get("PERSONAJE")
-
-    return regPersonaje
-
-
-def nuevaCuenta(tablas, reg):
-    '''Crear una nueva cuenta corriente y de tarjeta de crédito para un participante'''
-    
-    # Comprobar si ya tiene cuenta
-    regEnlazado = comprobarPersonaje(tablas["PERSONAJES"], reg)
-
-    # Comprobar que tiene personaje asignado
-    if regEnlazado:
-
-        regProfesion = traerRegistroDeTabla(tablas["PERSONAJES"], regEnlazado)
-        tieneCuentaJubilacion = False
-        tieneCuentaAhorro = False
-
-        cuentas = regProfesion["fields"].get("CUENTA")
-
-        if cuentas:
-
-            # Ya tiene alguna cuenta
-            regCuentas = traerRegistros(tablas["CUENTAS"], cuentas)
-            print("\n")
-            for cuenta in regCuentas:
-                print(f'El personaje {regProfesion["fields"]["DENOMINACIÓN"]} ya tiene la cuenta {cuenta["fields"]["TIPO-CUENTA"]} número {cuenta["fields"]["NÚMERO-CUENTA"]}.')
-                if cuenta["fields"]["TIPO-CUENTA"] == "JUBILACIÓN":
-                    tieneCuentaJubilacion == True
-                elif cuenta["fields"]["TIPO-CUENTA"] == "AHORRO":
-                    tieneCuentaAhorro == True
-                    
-        else:
-
-            # Crear registro de nueva cuenta corriente y de tarjeta de crédito
-
-            campoCuenta = {
-                "PERSONAJE": [regProfesion["id"]],
-                "TIPO-CUENTA": "CORRIENTE",
-            }
-
-            try:
-                regCorriente = crearRegistroEnTabla(tablas["CUENTAS"], campoCuenta)
-                print("\n" + f'Cuenta corriente número {regCorriente["fields"]["NÚMERO-CUENTA"]} creada correctamente.')
-            except:
-                print("\nNo se ha podido crear el registro de la cuenta corriente.")
-                return
-
-            campoCuentaTarjeta = {
-                "PERSONAJE": [regProfesion["id"]],
-                "PERSONAJE-TARJETA": [regProfesion["id"]],
-                "TIPO-CUENTA": "TARJETA",
-            }
-
-            try:
-                regTarjeta = crearRegistroEnTabla(tablas["CUENTAS"], campoCuentaTarjeta)
-                print("\n" + f'Cuenta de tarjeta número {regTarjeta["fields"]["NÚMERO-CUENTA"]} creada correctamente.')
-            except:
-                print("\nNo se ha podido crear el registro de la cuenta de tarjeta.")
-                return
-
-            # Poner primera mensualidad en la cuenta corriente
-
-            regOcupacion = traerRegistroDeTabla(tablas["PROFESIONES"], regProfesion["fields"]["OCUPACIÓN1"])
-
-            regMensualidad = {
-                "PERSONAJE": [regProfesion["id"]],
-                "NOMBRE": "MENSUALIDAD",
-                "PERIÓDICO": True,
-                "FRECUENCIA": "MENSUAL",
-            }
-
-            regSalario = crearRegistroEnTabla(tablas["PRODUCTOS-SERVICIOS"], regMensualidad)
-
-            regMes = {
-                "CUENTA": [regCorriente["id"]],
-                "CONCEPTO": [regSalario["id"]],
-                "MEDIO": "INGRESO",
-            }
-
-            crearRegistroEnTabla(tablas["MOVIMIENTOS"], regMes)
-
-            # Poner deuda en la cuenta de la tarjeta de crédito
-            buscadero = tablas["PRODUCTOS-SERVICIOS"].all(fields="NOMBRE")
-            regConcepto = buscarRegistroDeCampoEnTabla(buscadero, "NOMBRE", "PAGO DEUDA TARJETA")
-            importeDeuda = regOcupacion["fields"]["DEUDA-TARJETA-CRÉDITO"]
-            
-            regMov = {
-                "CUENTA": [regTarjeta["id"]],
-                "CONCEPTO": regConcepto,
-                "MEDIO": "TARJETA-CRÉDITO",
-                "IMPORTE-PARTICULAR": -importeDeuda,
-            }
-
-            crearRegistroEnTabla(tablas["MOVIMIENTOS"], regMov)
-
-        if not tieneCuentaAhorro:
-
-            ahorro = ""
-
-            while not ahorro:
-
-                try:
-                    ahorro = input("\nCrear cuenta para el plan de ahorro (S/N): ").upper()
-                except ValueError:
-                    ahorro = ""
-
-            if ahorro == "S":
-
-                campoAhorro = {
-                    "PERSONAJE": [regProfesion["id"]],
-                    "PERSONAJE-AHORRO": [regProfesion["id"]],
-                    "TIPO-CUENTA": "AHORRO",
-                }
-
-                try:
-                    regAhorro = crearRegistroEnTabla(tablas["CUENTAS"], campoAhorro)
-                    print("\n" + f'Cuenta del plan de ahorro número {regAhorro["fields"]["NÚMERO-CUENTA"]} creada correctamente.')
-                except:
-                    print("\nNo se ha podido crear el registro de la cuenta de ahorro.")
-                    return
-
-        if not tieneCuentaJubilacion:
-
-            jubilacion = ""
-
-            while not jubilacion:
-
-                try:
-                    jubilacion = input("\nCrear cuenta para el plan de jubilación (S/N): ").upper()
-                except ValueError:
-                    jubilacion = ""
-
-            if jubilacion == "S":
-
-                campoJubilacion = {
-                    "PERSONAJE": [regProfesion["id"]],
-                    "PERSONAJE-JUBILACIÓN": [regProfesion["id"]],
-                    "TIPO-CUENTA": "JUBILACIÓN",
-                }
-
-                try:
-                    regJubilacion = crearRegistroEnTabla(tablas["CUENTAS"], campoJubilacion)
-                    print("\n" + f'Cuenta del plan de jubilación número {regJubilacion["fields"]["NÚMERO-CUENTA"]} creada correctamente.')
-                except:
-                    print("\nNo se ha podido crear el registro de la cuenta de jubilación.")
-                    return
-
-    else:
-
-        print("\nEs necesario asignar primero un personaje.")
-    
-
-def comienzo(regParticipante):
-    '''Pregunta comandos del menú principal y ejecuta las opciones'''
-
-    tablas = cargarBase()
-    
-    muestraOpciones(menus.get("principal"))
-
-    opcion = input("\n").upper()
-
-    if opcion not in menus.get("principal").keys():
-        print('Comando inválido')
-        time.sleep(1)
-        comienzo(regParticipante)
-    elif opcion == 'C':
-        clave = pedirClave()
-        if clave == atk or clave == "Joshua":
-            regParticipante = crearParticipante(tablas["PERSONAS"])
-            print("Registro creado correctamente.")
-        comienzo(regParticipante)
-    elif opcion == 'L':
-        listaParticipantes(tablas["PERSONAS"])
-        comienzo(regParticipante)
-    elif opcion == 'R':
-        regParticipante = buscarParticipante(tablas["PERSONAS"])
-        if regParticipante:
-            opcionesParticipante(tablas, regParticipante)
-        comienzo(regParticipante)
-    elif opcion == 'S':
-        # Validar salida y terminar guión
-        clave = pedirClave()
-        if clave == atk or clave == "Joshua":
-            os._exit(1)
-        else:
-            comienzo(regParticipante)
-        
-
-
-def borrarPersonaje(tablas, reg):
-    '''Borra un personaje del participante en la tabla PERSONAS'''
-
-    tablaPersonas = tablas["PERSONAS"]
-    tablaPersonajes = tablas["PERSONAJES"]
-    
-    regParticipante = traerRegistroDeTabla(tablaPersonas, reg)
-
-    try:
-        regEnlazado = regParticipante["fields"]["PERSONAJE"]
-
-        # Comprobar si el personaje tiene el campo CUENTA vacío
-        regPersonaje = traerRegistroDeTabla(tablaPersonajes, regEnlazado)
-
-        try:
-            regPersonaje["fields"]["CUENTA"]
-            print("\nAntes de borrar el personaje es necesario borrar su cuenta.")
-        except KeyError:
-            
-            # Borrar es asignar contenido vacío al campo
-            respuesta = input("\n"+f'¿Seguro que quieres borrar el personaje {regPersonaje["fields"]["DENOMINACIÓN"]}? (S/N): ').upper()
-            if respuesta == "S":
-                asignarRegEnlazado(tablaPersonas, regParticipante, "PERSONAJE", [])
-                print("Personaje borrado.")
-            else: print("Registro no borrado.")
-
-    except:
-        print("\nEste participante no tiene asignado personaje.")
-
-
-def borrarCuenta(tablas, reg):
-    '''Borra una cuenta que no tenga movimientos'''
-
-    regPersona = traerRegistroDeTabla(tablas["PERSONAS"], reg)
-    regPersonaje = traerRegistroDeTabla(tablas["PERSONAJES"], regPersona["fields"]["PERSONAJE"])
-    regCuenta = traerRegistroDeTabla(tablas["CUENTAS"], regPersonaje["fields"].get("CUENTA"))
-
-    if not regCuenta:
-        print("\n" + f'El personaje {regPersonaje["fields"].get("DENOMINACIÓN")} no tiene cuenta alguna.')
-        return
-    
-    if regCuenta["fields"].get("MOVIMIENTO"):
-        
-        print("\nEs necesario eliminar los movimientos antes de borrar la cuenta.")
-
-    else:
-
-        # Eliminar registro de la tabla CUENTAS
-        respuesta = input("\n"+f'¿Seguro que quieres borrar la cuenta número {regCuenta["fields"]["NÚMERO-CUENTA"]}? (S/N): ').upper()
-        if respuesta == "S":
-            tablas["CUENTAS"].delete(regCuenta["id"])
-            print("\nCuenta borrada.")
-        else: print("\nRegistro no borrado.")
-
-def borrarRegistroDeTabla(tabla, reg):
-    '''Borrar un registro de una tabla'''
-
-    return tabla.delete(reg[0])
-        
-
-def borrarParticipante(tabla, reg):
-    '''Borrar un participante de la tabla PERSONAS'''
-
-    esBorrado = bool
-
-    if not reg:
-        print("Es necesario primero buscar un participante.")
-    else:
-        registro = traerRegistroDeTabla(tabla, reg)
-        if registro:
-            respuesta = input(f'¿Seguro que quieres borrar el registro de {registro["fields"]["PARTICIPANTE"]}? (S/N): ').upper()
-            if respuesta == "S":
-                try:
-                    profesion = registro["fields"]["PROFESIÓN"]
-                    print("El registro no se puede borrar porque ha comenzado una simulación.")
-                except:
-                    esBorrado = borrarRegistroDeTabla(tabla, reg)
-                    if esBorrado["deleted"]:
-                        print("Registro borrado correctamente.")
-                    else: print("No se ha podido borrar el registro.")
-            else: print("Registro no borrado.")
-        else: print("No existe el registro.")
-
-
-def borrarPersonaje(tablas, reg):
-    '''Borra un personaje del participante en la tabla PERSONAS'''
-
-    tablaPersonas = tablas["PERSONAS"]
-    tablaPersonajes = tablas["PERSONAJES"]
-    
-    regParticipante = traerRegistroDeTabla(tablaPersonas, reg)
-
-    try:
-        regEnlazado = regParticipante["fields"]["PERSONAJE"]
-
-        # Comprobar si el personaje tiene el campo CUENTA vacío
-        regPersonaje = traerRegistroDeTabla(tablaPersonajes, regEnlazado)
-
-        try:
-            regPersonaje["fields"]["CUENTA"]
-            print("\nAntes de borrar el personaje es necesario borrar su cuenta.")
-        except:
-            # Borrar es asignar contenido vacío al campo
-            respuesta = input("\n"+f'¿Seguro que quieres borrar el personaje {regPersonaje["fields"]["DENOMINACIÓN"]}? (S/N): ').upper()
-            if respuesta == "S":
-                asignarRegEnlazado(tablaPersonas, regParticipante, "PERSONAJE", [])
-                print("Personaje borrado.")
-            else: print("Registro no borrado.")
-
-    except:
-        print("\nEste participante no tiene asignado personaje.")
-
-
-def traerRegistroDeTabla(tabla, reg):
-    '''Recupera un registro de una tabla
-
-    Argumentos:
-    - tabla: Table
-    - reg: [str]
-
-    Retorna: Record'''
-    
-    if not reg: return False
-
-    try:
-        return tabla.get(reg[0])
-    except TypeError:
-        return False
-    except ConnectionError:
-        return False
-
-
-def traerRegistros(tabla, listaReg):
-    '''Recupera varios registros de una tabla
-
-    Argumentos:
-    - Tabla: Table
-    - Lista de claves primarias: [str]
-
-    Retorna: Lista de registros: [Record]'''
-
-    if listaReg:
-        lista = []
-
-        for reg in listaReg:
-            try:
-                registro = tabla.get(reg)
-                lista.append(registro)
-            except:
-                pass
-
-        if lista:
-            return lista
-        else:
-            return False
-    else:
-        return False
-
-
-def buscarRegistroDeCampoEnTabla(buscadero, nombreCampo, dato):
-    ''' Buscar el registro que tenga el dato en el nombreCampo de la tabla
-
-        Argumentos:
-        - buscadero: list(dict)
-            Tabla de la base de datos donde buscar
-        - nombreCampo: str
-            Nombre del campo de la tabla que se aporta
-        - dato: str
-            Valor del campo a partir del cual se busca
-
-        Retorna:
-        - lista con id del registro encontrado: [str]
-        - lista vacía si no lo encuentra'''
-
-    return [
-        reg["id"] for reg in buscadero if reg["fields"].get(nombreCampo) == dato
-    ]
-
-
-def buscarParticipante(tabla):
-    '''Buscar un participante'''
-
-    nombre = input("Introduce nombre: ").upper()
-    apellido1 = input("Introduce primer apellido: ").upper()
-    apellido2 = input("Introduce segundo apellido: ").upper()
-
-    nombreCompleto = f'{apellido1} {apellido2}, {nombre}'
-    buscadero = tabla.all(fields = ["NOMBRE COMPLETO"])
-
-    encontrados = buscarRegistroDeCampoEnTabla(buscadero, "NOMBRE COMPLETO", nombreCompleto)
-
-    if encontrados:
-        print("\n"+f'Encontrado: {encontrados[0]}')
-    else:
-        print("\nRegistro no encontrado.")
-
-    return encontrados
-
-
-def pedirTipoParticipante():
-    '''Pedir y validar tipo de participante'''
-
-    tipo = input("Selecciona tipo, [E]studiante o [C]omerciante: ")
-
-    if tipo.upper() == "E":
-        tipo = "ESTUDIANTE"
-    elif tipo.upper() == "C":
-        tipo = "COMERCIANTE"
-    else:
-        pedirTipoParticipante()
-
-    return tipo
-
-
-def crearParticipante(tabla):
-    '''Crea un participante en la tabla PERSONAS'''
-
-    print("Creación de un participante")
-
-    nombre = ""
-    apellido1 = ""
-    apellido2 = ""
-
-    while not nombre:
-        nombre = comprobarDatosDelParticipante("Introduce el nombre del participante: ", "nombre")
-
-    while not apellido1:        
-        apellido1 = comprobarDatosDelParticipante("Introduce el primer apellido del participante: ", "apellido1").upper()
-
-    nombre = nombre.upper()
-    apellido1 = apellido1.upper()
-    apellido2 = input("Introduce segundo apellido del participante: ").upper()
-
-    tipo = pedirTipoParticipante()
-
-    esquemaPersonas = {
-        "fields": {
-            "APELLIDO1": apellido1,
-            "APELLIDO2": apellido2,
-            "NOMBRE": nombre,
-            "TIPO": tipo,
-        }
-    }
-
-    return crearRegistroEnTabla(tabla, esquemaPersonas.get("fields"))
-    
-
-def comprobarDatosDelParticipante(mensaje, tipoDato):
-    '''Validar introducción de los datos del participante'''
-
-    dato = input(mensaje).upper()
-    try:
-        # validarNombre o validarApellido1
-        getattr(validador, f'validar{tipoDato.capitalize()}')(dato)
-        return dato
-    except ValueError as error:
-        print(error)
-        return None
-
-
-def listaRegistrosEnTabla(tabla, conf, campoOrden):
-    '''Lista de registros en una tabla'''
-
-    lista = PrettyTable()
-    lista.field_names = conf["campos"]
-    for i, ajuste in enumerate(conf["ajuste"]):
-        col = conf["campos"][i]
-        lista.align[col] = ajuste       
-    lista.set_style(PLAIN_COLUMNS)
-    
-    for reg in tabla.all(sort = [campoOrden]):
-        
-        fila = []
-
-        for campo in conf["campos"]:
-            # Horizontal
-            columna = reg["fields"].get(campo)
-            if columna:
-                if type(columna) == type(str()):
-                    fila.append(columna)
-                elif type(columna) == type(list()):
-                    if type(columna[0]) == type(float()) or type(columna[0]) == type(int()):
-                        fila.append("{0:.2f} €".format(columna[0]))
-                    elif type(columna[0]) == type(str()):
-                        fila.append(columna[0].upper())
-            else:
-                fila.append("--")
-
-        lista.add_row(fila)
-
-    print(lista)
-
-
-def listaParticipantes(tabla):
-    '''Mostrar listado de participantes'''
-
-    print("\nLista de participantes")
-
-    campos = ["NOMBRE COMPLETO", "PROFESIÓN", "SALDO"]
-    alineamiento = ["l", "l", "r"]
-    conf = {
-        "campos": campos,
-        "ajuste": alineamiento,
-    }
-    campoOrden = campos[0]
-
-    listaRegistrosEnTabla(tabla, conf, campoOrden)
-
-
-def modificarCampo(tabla, campo, nuevoDato, reg):
-    '''Modificar un registro en una tabla'''
-
-    try:
-        resultado = tabla.update(reg[0], {campo: nuevoDato})
-        return resultado
-    except:
-        return False
-
-
-def pedirModificacion(tabla, regParticipante):
-    '''Pedir nuevo dato para modificar'''
-
-    campo = str
-
-    muestraOpciones(menus.get("modificarParticipante"))
-
-    opcion = input("\n").upper()
-
-    if opcion == 'N':
-        campo = "NOMBRE"
-        nombre = input("Nuevo nombre: ").upper()
-        resultado = modificarCampo(tabla, campo, nombre, regParticipante)
-        if resultado:
-            print("Datos modificados correctamente.")
-        else: print("No se ha podido hacer la modificación.")
-        pedirModificacion(tabla, regParticipante)
-    elif opcion == 'R':
-        regParticipante = buscarParticipante(tabla)
-    elif opcion == 'P':
-        campo = "APELLIDO1"
-        nombre = input("Nuevo primer apellido: ").upper()
-        resultado = modificarCampo(tabla, campo, nombre, regParticipante)
-        if resultado:
-            print("Datos modificados correctamente.")
-        else: print("No se ha podido hacer la modificación.")
-        pedirModificacion(tabla, regParticipante)
-    elif opcion == 'S':
-        campo = "APELLIDO2"
-        nombre = input("Nuevo segundo apellido: ").upper()
-        resultado = modificarCampo(tabla, campo, nombre, regParticipante)
-        if resultado:
-            print("Datos modificados correctamente.")
-        else: print("No se ha podido hacer la modificación.")
-        pedirModificacion(tabla, regParticipante)
-    elif opcion == 'T':
-        campo = "TIPO"
-        nombre = input("Nuevo tipo (COMERCIANTE/ESTUDIANTE): ").upper()
-        resultado = modificarCampo(tabla, campo, nombre, regParticipante)
-        if resultado:
-            print("Datos modificados correctamente.")
-        else: print("No se ha podido hacer la modificación.")
-        pedirModificacion(tabla, regParticipante)
-    elif opcion == 'V':
-        # Volver al menú anterior
-        comienzo(regParticipante)
-    else:
-        print('Comando inválido')
-        time.sleep(1)
-        pedirModificacion(tabla, regParticipante)
-
-
-def modificarParticipante(tabla, regParticipante):
-    '''Pedir nuevos datos y modificar registro en la tabla PERSONAS'''
-
-    try:
-        resultado = tabla.get(regParticipante[0])
-    except:
-        resultado = []
-
-    if not regParticipante: print("Es necesario primero buscar un participante.")
-    elif not resultado: print("Registro ya borrado.")
-    else: pedirModificacion(tabla, regParticipante)
-
+        # Comprobar si se ha cargado correctamente
+        if not tablas:
+            self.vista.error("No se ha podido cargar la base de datos.")
+            self._salir()
+
+        # Mostrar menú principal
+        menu = self.vista.muestraOpciones(catalogo.get("completo"))
+        regParticipante = []
+        while True:
+            # Pedir opción de menú
+            eleccion = self.vista.eligeOpcion(menu)
+            # Determinar procedimiento elegido
+            if eleccion == '0':
+                # Validar salida y terminar guión
+                esAutorizado = self.modelo.validarAcceso(atk)
+                continuar = self.vista.responderAcceso(esAutorizado)
+                if continuar: self._salir()
+                continue
+            elif eleccion == '1':
+                self._comprobarClave()
+                regParticipante = self._crearParticipante(baseDatos)
+                if regParticipante.reg.id:
+                    self.vista.mensaje("Contraseña del participante: " + regParticipante.reg.id)
+                continue
+            elif eleccion == '2':
+                self._listaParticipantes(baseDatos)
+                continue
+            elif eleccion == '3':
+                self._mostrarParticipante(baseDatos)
+                continue
+            elif eleccion == "4":
+                self._modificarParticipante(baseDatos)
+                continue
+            elif eleccion == "5":
+                self._borrarParticipante(baseDatos)
+                continue
+            elif eleccion == "6":
+                self._asignarPersonaje(baseDatos)
+                continue
+            elif eleccion == "7":
+                self._borrarPersonaje(baseDatos)
+                continue
+            elif eleccion == '8':
+                self._crearCuenta(baseDatos)
+                continue
+            elif eleccion == "9":
+                self._borrarCuenta(baseDatos)
+                continue
+            elif eleccion == "A":
+                self._nuevoMovimiento(baseDatos)
+                continue
+            elif eleccion == "B":
+                self._borrarMovimiento(baseDatos)
+                continue
+            elif eleccion == "C":
+                self._modificarMovimiento(baseDatos)
+                continue
+            elif eleccion == "D":
+                self._listaMovimientos(baseDatos)
+                continue
+            elif eleccion == "E":
+                self._borrarTodosMovimientos(baseDatos)
+                continue
 
 #
-# Ejecución principal
-# -------------------
+# Bucle principal
 #
-
-atk = ""
+def main():
+    controlador = controladorTerminal()
+    while True:
+        controlador.comienza()
 
 if __name__ == "__main__":
-
-    clear()
-    print("\nSistema de Educación Financiera Escolar de Alborada")
-    print("{:-^51}".format(""))
-
-    while not atk:
-        atk = pedirClave()
-    
-    print("\nSaludos, profesor Falken.")
-
-    claveInterrupcion = ""
-    
-    try:
-        comienzo([])
-    except KeyboardInterrupt:
-        claveInterrupcion = pedirClave()
-        if claveInterrupcion == atk or claveInterrupcion == "Joshua":
-            os._exit(1)
-        else:
-            comienzo([])
+    main()
