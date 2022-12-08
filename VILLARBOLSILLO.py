@@ -155,8 +155,6 @@ def pedirClave():
 def cargarBase():
     '''Carga la base de datos de Airtable'''
 
-    # atk = pedirClave()
-    # atk = "keyttj6HcvrIi08wU"
     baseDatos = os.environ.get("DATABASE")
     atk = os.environ.get("PASSWORD")
 
